@@ -1,0 +1,6 @@
+# Plain uvicorn (not uvicorn[standard]): the [standard] extra drags in httptools,
+# which has no prebuilt wheel for Python 3.12 on Windows and fails to compile.
+# The asyncio loop is more than fast enough for the demo.
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4

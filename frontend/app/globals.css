@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Shadcn's Tailwind-v3 contract: "H S% L%" triplets consumed as
+ * hsl(var(--x)). The palette is a deep navy-slate surface stack with a single
+ * institutional blue accent.
+ *
+ * The accent is deliberately NOT green: green/amber/red are reserved as the
+ * risk status ramp, and a green UI accent would let the interface chrome
+ * impersonate a "Low risk" signal.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 212 76% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 60% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 89%;
+    --input: 214 32% 89%;
+    --ring: 212 76% 56%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    /* Surface stack: page plane -> panel -> raised card */
+    --background: 222 47% 6%;
+    --surface-1: 222 42% 9%;
+    --surface-2: 221 38% 12%;
+    --foreground: 213 31% 93%;
+    --card: 221 38% 11%;
+    --card-foreground: 213 31% 93%;
+    --popover: 221 40% 13%;
+    --popover-foreground: 213 31% 93%;
+    /* Sequential-blue 400 (#3987e5) - institutional, distinct from the risk ramp */
+    --primary: 212 76% 56%;
+    --primary-foreground: 213 40% 8%;
+    --secondary: 220 30% 17%;
+    --secondary-foreground: 213 31% 93%;
+    --muted: 220 30% 16%;
+    --muted-foreground: 215 19% 63%;
+    --accent: 220 30% 20%;
+    --accent-foreground: 213 31% 93%;
+    --destructive: 0 61% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 218 27% 19%;
+    --input: 218 27% 22%;
+    --ring: 212 76% 56%;
+
+    /* Risk status ramp - fixed, never themed, always shipped with a label */
+    --risk-low: #0ca30c;
+    --risk-moderate: #fab219;
+    --risk-high: #d03b3b;
+
+    /* Chart chrome */
+    --grid: 218 27% 17%;
+    --axis: 218 22% 28%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Recessive scrollbars - the panels scroll a lot on short viewports */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* ---------------- Leaflet re-skin ---------------- */
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: hsl(var(--background));
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+}
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius);
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: hsl(var(--muted-foreground));
+}
+
+.leaflet-control-attribution {
+  background: hsl(var(--background) / 0.72) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  backdrop-filter: blur(6px);
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  border-top-left-radius: 6px;
+}
+.leaflet-control-attribution a {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.leaflet-bar {
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.8) !important;
+}
+.leaflet-bar a {
+  background: hsl(var(--surface-2)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-bottom-color: hsl(var(--border)) !important;
+  width: 28px !important;
+  height: 28px !important;
+  line-height: 28px !important;
+  font-size: 15px !important;
+}
+.leaflet-bar a:hover {
+  background: hsl(var(--accent)) !important;
+}
+
+/* District hover tooltip renders its own card, so strip Leaflet's chrome */
+.leaflet-tooltip.district-tooltip {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  white-space: normal;
+  width: max-content;
+}
+.leaflet-tooltip.district-tooltip::before {
+  display: none;
+}
+
+/* Smooth the choropleth recolour when a simulation result comes back */
+path.leaflet-interactive {
+  transition: fill 450ms ease, fill-opacity 450ms ease, stroke 450ms ease;
+}
+
+/*
+ * Esri's Dark Gray Canvas is a warm mid-gray - lighter than this app's navy
+ * chrome. Deepening it lets the choropleth and its halo carry the eye, and
+ * settles the map into the surrounding panels. Applied to the base pane only,
+ * so the label pane above it stays legible.
+ */
+.basemap-tint {
+  filter: brightness(0.62) contrast(1.1) saturate(0.7);
+}
