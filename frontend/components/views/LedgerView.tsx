@@ -5,6 +5,7 @@ import {
   Blocks,
   CircleCheck,
   CircleX,
+  FileText,
   Fingerprint,
   Link as LinkIcon,
   Pickaxe,
@@ -16,12 +17,13 @@ import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RISK_COLORS, riskColor } from "@/lib/districts";
 import {
+  checkReportHash,
   fetchLedger,
   restoreLedger,
   shortHash,
   tamperBlock,
 } from "@/lib/ledger";
-import type { Block, BlockCheck, LedgerState } from "@/lib/ledger";
+import type { Block, BlockCheck, LedgerState, ReportCheck } from "@/lib/ledger";
 import { useRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -125,6 +127,17 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
           </span>
         )}
         <span className="ml-auto text-[11px] text-muted-foreground">{when(block.timestamp)}</span>
+        {!isGenesis && (
+          <a
+            href={`/report?block=${block.index}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+          >
+            <FileText className="h-3 w-3" />
+            Report
+          </a>
+        )}
         <span
           className="flex items-center gap-1 text-[11px] font-medium"
           style={{ color: broken ? BAD : OK }}
@@ -196,9 +209,47 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
   );
 }
 
+/** The verdict on a pasted report fingerprint, in plain language. */
+function ReportVerdict({ result }: { result: ReportCheck }) {
+  if (result.kind === "invalid-input") {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        That doesn&rsquo;t look like a fingerprint - paste the long code printed under
+        &ldquo;Fingerprint (hash)&rdquo; on the report.
+      </p>
+    );
+  }
+  const good = result.kind === "genuine";
+  return (
+    <div
+      className="rounded-md border px-3 py-2 text-[11px] leading-relaxed"
+      style={{ borderColor: good ? `${OK}66` : `${BAD}66`, backgroundColor: good ? `${OK}12` : `${BAD}14` }}
+    >
+      <p className="font-semibold" style={{ color: good ? OK : BAD }}>
+        {result.kind === "genuine" && `✓ Genuine - matches Block #${result.block.index}, which is intact`}
+        {result.kind === "altered" && `✗ Matches Block #${result.block.index}, but that record has been edited`}
+        {result.kind === "unknown" && "✗ No block on the ledger has this fingerprint"}
+      </p>
+      <p className="mt-0.5 text-muted-foreground">
+        {result.kind === "genuine" &&
+          `Every number on that report is exactly what was sealed: ${result.block.data.title}.`}
+        {result.kind === "altered" && `${result.problem} Restore the honest copy and check again.`}
+        {result.kind === "unknown" &&
+          (result.chainBrokenAt !== null
+            ? `The ledger itself fails verification at Block #${result.chainBrokenAt}, so someone may have re-sealed a record. Restore the honest copy and check again.`
+            : "This report does not match any sealed decision - treat it as forged.")}
+      </p>
+    </div>
+  );
+}
+
 export default function LedgerView() {
   const { role } = useRole();
   const [ledger, setLedger] = useState<LedgerState | null>(null);
+  const [reportInput, setReportInput] = useState("");
+  // The verdict is recomputed whenever the ledger changes, so tampering with
+  // or restoring the chain updates an already-checked report straight away.
+  const [checkedHash, setCheckedHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState<number>(1);
@@ -339,6 +390,50 @@ export default function LedgerView() {
             })}
           </div>
         </section>
+
+        {/* ---- Is a printed report genuine? ---- */}
+        {ledger && (
+          <section className="mt-6 rounded-lg border border-border bg-surface-2/40 p-4">
+            <h2 className="flex items-center gap-1.5 text-xs font-semibold">
+              <FileText className="h-3.5 w-3.5 text-primary" />
+              Check a report
+            </h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Every decision has a printable report (use the Report link on a block). Paste the
+              fingerprint printed on a report to prove it hasn&rsquo;t been forged.
+            </p>
+            <form
+              className="mt-3 flex flex-wrap gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setCheckedHash(reportInput);
+              }}
+            >
+              <input
+                value={reportInput}
+                onChange={(e) => setReportInput(e.target.value)}
+                placeholder="Paste a fingerprint, e.g. 000a84f2…"
+                aria-label="Report fingerprint"
+                spellCheck={false}
+                className="h-8 min-w-[16rem] flex-1 rounded-md border border-border bg-surface-2 px-2.5 font-mono text-[11px] outline-none focus:border-primary/50"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                variant="secondary"
+                className="h-8 text-[11px]"
+                disabled={!reportInput.trim()}
+              >
+                Check
+              </Button>
+            </form>
+            {checkedHash && (
+              <div className="mt-3">
+                <ReportVerdict result={checkReportHash(ledger, checkedHash)} />
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ---- Live demonstration of tamper detection ---- */}
         {tamperable.length > 0 && (

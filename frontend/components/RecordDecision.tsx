@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Blocks, Lock } from "lucide-react";
+import { ArrowRight, Blocks, FileText, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { recordDecision, shortHash } from "@/lib/ledger";
 import type { Block, DecisionScenario } from "@/lib/ledger";
@@ -72,15 +72,25 @@ export default function RecordDecision({
                 hash {shortHash(sealed.hash)} &middot; found after{" "}
                 {nf.format(sealed.nonce + 1)} tries
               </p>
-              {onOpenLedger && (
-                <button
-                  type="button"
-                  onClick={onOpenLedger}
-                  className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                <a
+                  href={`/report?block=${sealed.index}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
                 >
-                  See it on the ledger <ArrowRight className="h-3 w-3" />
-                </button>
-              )}
+                  <FileText className="h-3 w-3" /> Download report
+                </a>
+                {onOpenLedger && (
+                  <button
+                    type="button"
+                    onClick={onOpenLedger}
+                    className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                  >
+                    See it on the ledger <ArrowRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="mt-2.5 grid grid-cols-2 gap-2">

@@ -794,6 +794,9 @@ def decision_record(sim: SimulationOutput, decision: str, recorded_by: str) -> d
         "risk_level": sim.risk_level,
         "flood_risk_increase_pct": sim.predicted_flood_risk_increase_pct,
         "displacement_persons": sim.predicted_displacement_persons,
+        "land_label": sim.land_label,
+        "land_lost_hectares": sim.predicted_farmland_loss_hectares,
+        "biodiversity_impact_score": sim.biodiversity_impact_score,
         "recorded_by": recorded_by,
     }
 

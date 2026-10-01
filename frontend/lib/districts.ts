@@ -111,6 +111,13 @@ export const RISK_BANDS: { level: string; max: number }[] = [
   { level: "High", max: 100 },
 ];
 
+/** What each band means in one sentence - the score alone is just a number. */
+export const RISK_MEANING: Record<string, string> = {
+  Low: "The area can absorb this change.",
+  Moderate: "Workable, but needs drainage and resettlement planning.",
+  High: "Expect serious flooding and people losing homes.",
+};
+
 export function riskColor(level?: string): string {
   return RISK_COLORS[level ?? "Low"] ?? RISK_COLORS.Low;
 }

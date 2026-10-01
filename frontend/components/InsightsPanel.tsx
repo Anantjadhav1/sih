@@ -4,17 +4,10 @@ import { Droplets, Leaf, Sprout, TriangleAlert, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import RiskCurve from "@/components/RiskCurve";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RISK_LEVELS, getProfile, riskColor } from "@/lib/districts";
+import { RISK_LEVELS, RISK_MEANING, getProfile, riskColor } from "@/lib/districts";
 import type { SimulationResult } from "@/lib/api";
 
 const nf = new Intl.NumberFormat("en-IN");
-
-/** What each band means in one sentence - the score alone is just a number. */
-const MEANING: Record<string, string> = {
-  Low: "The area can absorb this change.",
-  Moderate: "Workable, but needs drainage and resettlement planning.",
-  High: "Expect serious flooding and people losing homes.",
-};
 
 /** One headline figure. The label says what it is; the sub-line says why it matters. */
 function StatTile({
@@ -128,7 +121,7 @@ export default function InsightsPanel({
             {level}
           </span>
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">{MEANING[level]}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{RISK_MEANING[level]}</p>
 
         {/* Banded meter: the two ticks are the Low/Moderate/High cut-offs */}
         <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">

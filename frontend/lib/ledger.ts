@@ -15,6 +15,12 @@ export interface DecisionData {
   risk_level?: string;
   flood_risk_increase_pct?: number;
   displacement_persons?: number;
+  monsoon_intensity?: number;
+  population_growth_rate?: number;
+  // Present on blocks sealed after reports were added
+  land_label?: string;
+  land_lost_hectares?: number;
+  biodiversity_impact_score?: number | null;
   recorded_by?: string;
 }
 
@@ -108,4 +114,37 @@ export const restoreLedger = () =>
 /** First and last few characters - enough to compare two hashes by eye. */
 export function shortHash(h: string): string {
   return `${h.slice(0, 8)}…${h.slice(-4)}`;
+}
+
+export type ReportCheck =
+  | { kind: "genuine"; block: Block }
+  | { kind: "altered"; block: Block; problem: string }
+  | { kind: "unknown"; chainBrokenAt: number | null }
+  | { kind: "invalid-input" };
+
+/**
+ * Is a report genuine? Look its printed fingerprint up on the ledger.
+ *
+ * Accepts the full 64-character hash or the short "000a84f2…bb49" form shown
+ * on screen, so someone can type it straight off a printout.
+ */
+export function checkReportHash(ledger: LedgerState, raw: string): ReportCheck {
+  const input = raw.trim().toLowerCase().replace(/\s+/g, "");
+  const [head, tail] = input.split(/…|\.\.\./);
+  if (!/^[0-9a-f]{8,64}$/.test(head) || (tail !== undefined && !/^[0-9a-f]{1,56}$/.test(tail))) {
+    return { kind: "invalid-input" };
+  }
+
+  const block = ledger.blocks.find(
+    (b) => b.hash.startsWith(head) && (tail === undefined || b.hash.endsWith(tail))
+  );
+  if (!block) {
+    // A forger who re-mined a block changed its hash, so a genuine old report
+    // no longer matches anything - say the ledger is the suspect, not the paper.
+    return { kind: "unknown", chainBrokenAt: ledger.verification.first_broken_index };
+  }
+
+  const check = ledger.verification.blocks.find((c) => c.index === block.index);
+  if (check?.problem) return { kind: "altered", block, problem: check.problem };
+  return { kind: "genuine", block };
 }
