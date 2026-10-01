@@ -21,31 +21,37 @@ export interface RoleDef {
   /** What this role may do in the Innovation Hub */
   canApply: boolean;
   canCreate: boolean;
+  /**
+   * Whether this role may seal decisions on the blockchain ledger. Everyone
+   * can read and verify it - that openness is the point of a public ledger.
+   */
+  canRecord: boolean;
 }
 
 export const ROLES: RoleDef[] = [
   {
     id: "researcher",
     label: "Researcher",
-    blurb:
-      "Runs simulations, reads the full repository, and applies to open calls.",
+    blurb: "Runs simulations, reads research, verifies the ledger and applies to open calls.",
     canApply: true,
     canCreate: false,
+    canRecord: false,
   },
   {
     id: "official",
     label: "Government Official",
-    blurb:
-      "Everything a researcher can do, plus publishing new hackathons and grants.",
+    blurb: "Approves or rejects policies on the blockchain, and publishes grants.",
     canApply: true,
     canCreate: true,
+    canRecord: true,
   },
   {
     id: "public",
     label: "Public User",
-    blurb: "Read-only access to published evidence and open calls.",
+    blurb: "Views everything and can check that no decision was altered.",
     canApply: false,
     canCreate: false,
+    canRecord: false,
   },
 ];
 

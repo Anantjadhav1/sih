@@ -9,6 +9,7 @@ import SimulatorView from "@/components/views/SimulatorView";
 import KnowledgeRepository from "@/components/views/KnowledgeRepository";
 import GisExplorer from "@/components/views/GisExplorer";
 import InnovationHub from "@/components/views/InnovationHub";
+import LedgerView from "@/components/views/LedgerView";
 import { TABS } from "@/components/TabNav";
 import LoginScreen from "@/components/LoginScreen";
 import { RoleProvider, useRole } from "@/lib/roles";
@@ -41,8 +42,14 @@ function DashboardShell() {
         for no benefit at demo scale.
       */}
       <main className="flex min-h-0 flex-1 flex-col">
-        {tab === "dashboard" && <Dashboard />}
-        {tab === "simulator" && <SimulatorView onScopeChange={handleScopeChange} />}
+        {tab === "dashboard" && <Dashboard onNavigate={setTab} />}
+        {tab === "simulator" && (
+          <SimulatorView
+            onScopeChange={handleScopeChange}
+            onOpenLedger={() => setTab("ledger")}
+          />
+        )}
+        {tab === "ledger" && <LedgerView />}
         {tab === "repository" && <KnowledgeRepository />}
         {tab === "gis" && <GisExplorer />}
         {tab === "innovation" && <InnovationHub />}

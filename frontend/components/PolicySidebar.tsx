@@ -1,6 +1,7 @@
 "use client";
 
-import { CloudRain, MapPin, Ruler, Shuffle, Sprout, Target, TrendingUp, Users, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { ChevronDown, CloudRain, Shuffle, TrendingUp } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -10,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DISTRICT_PROFILES, getProfile } from "@/lib/districts";
+import { DISTRICT_PROFILES } from "@/lib/districts";
 import { POLICY_LEVERS, getLever } from "@/lib/levers";
 import type { Zone } from "@/lib/zones";
 import type { SimulationResult } from "@/lib/api";
@@ -37,33 +38,47 @@ interface PolicySidebarProps {
   onLeverChange: (id: string) => void;
 }
 
-const nf = new Intl.NumberFormat("en-IN");
-
-/** Named scenarios so a demo can jump to a meaningful point in one click. */
+/** Named scenarios, as fractions of whatever the active lever allows. */
 const PRESETS = [
-  { label: "Baseline", value: 0 },
+  { label: "None", value: 0 },
   { label: "Current trend", value: 25 },
   { label: "Accelerated", value: 55 },
-  { label: "Max build-out", value: 90 },
+  { label: "Maximum", value: 90 },
 ];
 
-function ContextRow({
-  icon: Icon,
-  label,
-  value,
+/** A shared chip style for every pick-one button in the sidebar. */
+function chip(on: boolean) {
+  return cn(
+    "rounded-md border px-2 py-1.5 text-left text-[11px] font-medium leading-snug transition-colors",
+    on
+      ? "border-primary/40 bg-primary/15 text-primary"
+      : "border-border bg-surface-2/50 text-muted-foreground hover:text-foreground"
+  );
+}
+
+/** A numbered step: the sidebar reads top to bottom as an instruction list. */
+function Step({
+  n,
+  title,
+  action,
+  children,
 }: {
-  icon: typeof MapPin;
-  label: string;
-  value: string;
+  n: number;
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 py-1.5">
-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Icon className="h-3 w-3" />
-        {label}
-      </span>
-      <span className="font-mono text-xs">{value}</span>
-    </div>
+    <section className="space-y-2.5">
+      <div className="flex items-center gap-2">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+          {n}
+        </span>
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {action && <div className="ml-auto">{action}</div>}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -87,22 +102,26 @@ export default function PolicySidebar({
   leverId,
   onLeverChange,
 }: PolicySidebarProps) {
-  const profile = getProfile(districtId);
   const lever = getLever(leverId);
   const activeZone = zones.find((z) => z.id === selectedZoneId) ?? null;
 
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-5 overflow-y-auto border-border bg-surface-1 p-4 lg:w-[19rem] lg:border-r">
-      {/* ---- Scope ---- */}
-      <section className="space-y-2">
-        <Label
-          htmlFor="district-select"
-          className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-        >
-          Study area
-        </Label>
+    <aside className="flex w-full shrink-0 flex-col gap-6 overflow-y-auto border-border bg-surface-1 p-4 lg:w-[19rem] lg:border-r">
+      <header>
+        <h1 className="text-base font-semibold tracking-tight">Test a land-use policy</h1>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Choose a place, a change and how much of it. The risk results update on the right.
+        </p>
+      </header>
+
+      {/* ---- 1. Where ---- */}
+      <Step n={1} title="Where?">
         <Select value={districtId} onValueChange={onDistrictChange}>
-          <SelectTrigger id="district-select" className="h-10 w-full bg-surface-2/60">
+          <SelectTrigger
+            id="district-select"
+            aria-label="District"
+            className="h-9 w-full bg-surface-2/60 text-xs"
+          >
             <SelectValue placeholder="Select a district" />
           </SelectTrigger>
           <SelectContent>
@@ -114,131 +133,91 @@ export default function PolicySidebar({
           </SelectContent>
         </Select>
 
-        <div className="rounded-lg border border-border bg-surface-2/40 px-3 py-1.5">
-          <ContextRow icon={Ruler} label="Area" value={`${nf.format(profile.area)} km²`} />
-          <ContextRow
-            icon={Users}
-            label="Population"
-            value={`${(profile.population / 1e6).toFixed(2)} M`}
-          />
-          <ContextRow
-            icon={Sprout}
-            label="Under cultivation"
-            value={`${Math.round(profile.agriShare * 100)}%`}
-          />
-        </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{profile.blurb}</p>
-      </section>
-
-      {/* ---- Zone scope ---- */}
-      <section className="space-y-2 border-t border-border pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            <Target className="h-3 w-3" />
-            Zone scope
-          </p>
-          {activeZone && (
+        {zones.length > 0 && (
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={() => onSelectZone(null)}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              className={chip(activeZone === null)}
             >
-              <X className="h-2.5 w-2.5" />
-              Clear
+              Whole district
             </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-1.5">
-          {zones.map((z) => {
-            const on = z.id === selectedZoneId;
-            return (
+            {zones.map((z) => (
               <button
                 key={z.id}
                 type="button"
-                onClick={() => onSelectZone(on ? null : z.id)}
+                onClick={() => onSelectZone(z.id)}
                 title={z.character}
-                className={cn(
-                  "rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition-colors",
-                  on
-                    ? "border-primary/40 bg-primary/15 text-primary"
-                    : "border-border bg-surface-2/50 text-muted-foreground hover:text-foreground"
-                )}
+                className={chip(z.id === selectedZoneId)}
               >
                 {z.name}
               </button>
-            );
-          })}
-        </div>
-
-        {activeZone ? (
-          <div className="rounded-lg border border-border bg-surface-2/40 px-3 py-2">
-            <p className="text-[11px] leading-snug">{activeZone.character}</p>
-            {result?.zone === activeZone.id && (
-              <p className="mt-1.5 border-t border-border pt-1.5 text-[11px] text-muted-foreground">
-                Standing flood risk before any conversion:{" "}
-                <span className="font-mono font-medium text-foreground">
-                  {result.baseline_flood_risk_pct}%
-                </span>
-              </p>
-            )}
+            ))}
           </div>
-        ) : (
+        )}
+
+        {activeZone && (
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Simulating the district average. Pick a zone - here or on the map -
-            to scope the projection to one ward.
+            {activeZone.character}.
+            {result?.zone === activeZone.id && (
+              <>
+                {" "}
+                Already has{" "}
+                <span className="font-medium text-foreground">
+                  {result.baseline_flood_risk_pct}%
+                </span>{" "}
+                flood risk before any change.
+              </>
+            )}
           </p>
         )}
-      </section>
+      </Step>
 
-      {/* ---- Policy lever ---- */}
-      <section className="space-y-3 border-t border-border pt-4">
-        <div>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Policy lever
-          </p>
-
-          {/* Which conversion is being modelled - each has its own maths */}
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-            {POLICY_LEVERS.map((l) => {
-              const on = l.id === leverId;
-              return (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => onLeverChange(l.id)}
-                  aria-pressed={on}
-                  className={cn(
-                    "rounded-md border px-2 py-1.5 text-left text-[11px] font-medium leading-snug transition-colors",
-                    on
-                      ? "border-primary/40 bg-primary/15 text-primary"
-                      : "border-border bg-surface-2/50 text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {l.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <p className="mt-2 rounded-md border border-border bg-surface-2/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-            {lever.explanation}
-          </p>
-
-          <Label htmlFor="conversion-slider" className="mt-3 block text-sm font-medium">
-            {lever.fullLabel}
-          </Label>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Applied to {activeZone ? activeZone.name : `${profile.name} district`}
-          </p>
+      {/* ---- 2. What ---- */}
+      <Step n={2} title="What change?">
+        <div className="grid grid-cols-2 gap-1.5">
+          {POLICY_LEVERS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => onLeverChange(l.id)}
+              aria-pressed={l.id === leverId}
+              className={chip(l.id === leverId)}
+            >
+              {l.label}
+            </button>
+          ))}
         </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">{lever.explanation}</p>
+      </Step>
 
+      {/* ---- 3. How much ---- */}
+      <Step
+        n={3}
+        title="How much?"
+        action={
+          <button
+            type="button"
+            onClick={onRandomize}
+            title="Pick a random amount, monsoon and population growth"
+            className={cn(
+              "flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors",
+              scenarioMode === "randomized"
+                ? "border-primary/40 bg-primary/15 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Shuffle className="h-3 w-3" />
+            Randomize
+          </button>
+        }
+      >
         <div className="flex items-baseline gap-1.5">
           <span className="animate-value-in font-mono text-3xl font-semibold tracking-tight text-primary">
-            {pct}
+            {pct}%
           </span>
-          <span className="text-sm text-muted-foreground">
-            % of {activeZone ? "zone" : "district"} agri land
+          <span className="text-[11px] text-muted-foreground">
+            of the {activeZone ? "zone's" : "district's"} land
           </span>
         </div>
 
@@ -250,135 +229,100 @@ export default function PolicySidebar({
           value={[pct]}
           onValueChange={(v) => onPctChange(v[0])}
           onValueCommit={(v) => onPctCommit(v[0])}
-          aria-label="Percentage of agricultural land converted to commercial use"
+          aria-label={`${lever.fullLabel}, percent of land`}
         />
         <div className="flex justify-between font-mono text-[10px] text-muted-foreground">
           <span>0%</span>
-          <span>{Math.round(lever.maxPct / 2)}%</span>
           <span>{lever.maxPct}%</span>
         </div>
         {lever.maxPct < 100 && (
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            Capped at {lever.maxPct}% - beyond that there is no wetland left to
-            model.
+          <p className="text-[10px] text-muted-foreground">
+            Capped at {lever.maxPct}% - beyond that there is no wetland left.
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-1.5 pt-1">
-          {/* Presets are fractions of whatever the active lever allows */}
+        <div className="grid grid-cols-2 gap-1.5">
           {PRESETS.map((raw) => {
-            const p = {
-              label: raw.label,
-              value: Math.round((raw.value / 100) * lever.maxPct),
-            };
+            const value = Math.round((raw.value / 100) * lever.maxPct);
             return (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => {
-                onPctChange(p.value);
-                onPctCommit(p.value);
-              }}
-              className={cn(
-                "rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors",
-                pct === p.value
-                  ? "border-primary/40 bg-primary/15 text-primary"
-                  : "border-border bg-surface-2/50 text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground"
-              )}
-            >
-              {p.label}
-              <span className="ml-1 font-mono opacity-60">{p.value}%</span>
-            </button>
+              <button
+                key={raw.label}
+                type="button"
+                onClick={() => {
+                  onPctChange(value);
+                  onPctCommit(value);
+                }}
+                className={chip(pct === value)}
+              >
+                {raw.label}
+                <span className="ml-1 font-mono opacity-60">{value}%</span>
+              </button>
             );
           })}
         </div>
-      </section>
+      </Step>
 
-      {/* ---- Secondary scenario factors ---- */}
-      <section className="space-y-3 border-t border-border pt-4">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Scenario conditions
-        </p>
+      {/*
+        Advanced conditions stay folded away - the summary line still shows
+        their current values, so a randomized scenario is never hidden.
+      */}
+      <details className="group rounded-lg border border-border bg-surface-2/30 px-3 py-2">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-medium">
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
+          Weather &amp; population
+          <span className="ml-auto font-mono text-[10px] font-normal text-muted-foreground">
+            {monsoon.toFixed(2)}&times; &middot; {growth.toFixed(1)}%/yr
+          </span>
+        </summary>
 
-        <div>
-          <div className="flex items-baseline justify-between gap-2">
-            <Label
-              htmlFor="monsoon-slider"
-              className="flex items-center gap-1.5 text-xs font-medium"
-            >
-              <CloudRain className="h-3 w-3 text-muted-foreground" />
-              Monsoon intensity
-            </Label>
-            <span className="font-mono text-xs font-semibold">
-              {monsoon.toFixed(2)}&times;
-            </span>
+        <div className="mt-3 space-y-4 pb-1">
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label htmlFor="monsoon-slider" className="flex items-center gap-1.5 text-xs">
+                <CloudRain className="h-3 w-3 text-muted-foreground" />
+                Monsoon strength
+              </Label>
+              <span className="font-mono text-xs">{monsoon.toFixed(2)}&times;</span>
+            </div>
+            <Slider
+              id="monsoon-slider"
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={[monsoon]}
+              onValueChange={(v) => onMonsoonChange(v[0])}
+              onValueCommit={onCommitFactors}
+              className="mt-2"
+              aria-label="Monsoon strength compared with a normal year"
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">1.00&times; is a normal year.</p>
           </div>
-          <Slider
-            id="monsoon-slider"
-            min={0.5}
-            max={2}
-            step={0.05}
-            value={[monsoon]}
-            onValueChange={(v) => onMonsoonChange(v[0])}
-            onValueCommit={onCommitFactors}
-            className="mt-2"
-            aria-label="Monsoon intensity relative to the long-period average"
-          />
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            1.00&times; is the long-period average. Drives the flood term.
-          </p>
-        </div>
 
-        <div>
-          <div className="flex items-baseline justify-between gap-2">
-            <Label
-              htmlFor="growth-slider"
-              className="flex items-center gap-1.5 text-xs font-medium"
-            >
-              <TrendingUp className="h-3 w-3 text-muted-foreground" />
-              Population growth
-            </Label>
-            <span className="font-mono text-xs font-semibold">
-              {growth.toFixed(1)}%/yr
-            </span>
+          <div>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label htmlFor="growth-slider" className="flex items-center gap-1.5 text-xs">
+                <TrendingUp className="h-3 w-3 text-muted-foreground" />
+                Population growth
+              </Label>
+              <span className="font-mono text-xs">{growth.toFixed(1)}%/yr</span>
+            </div>
+            <Slider
+              id="growth-slider"
+              min={0}
+              max={5}
+              step={0.1}
+              value={[growth]}
+              onValueChange={(v) => onGrowthChange(v[0])}
+              onValueCommit={onCommitFactors}
+              className="mt-2"
+              aria-label="Population growth per year"
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              1.2%/yr is today&rsquo;s trend.
+            </p>
           </div>
-          <Slider
-            id="growth-slider"
-            min={0}
-            max={5}
-            step={0.1}
-            value={[growth]}
-            onValueChange={(v) => onGrowthChange(v[0])}
-            onValueCommit={onCommitFactors}
-            className="mt-2"
-            aria-label="Annual population growth rate"
-          />
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Compounded over a 10-year horizon. Drives displacement.
-          </p>
         </div>
-
-        <button
-          type="button"
-          onClick={onRandomize}
-          className={cn(
-            "flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
-            scenarioMode === "randomized"
-              ? "border-primary/40 bg-primary/15 text-primary"
-              : "border-border bg-surface-2/50 text-foreground hover:border-primary/40 hover:bg-primary/10"
-          )}
-        >
-          <Shuffle className="h-3.5 w-3.5" />
-          Randomize scenario
-        </button>
-      </section>
-
-      <p className="mt-auto border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
-        Boundaries: Census of India 2011. Projections are a mocked linear model
-        for the MVP demo.
-        <br />
-        Ministry of Rural Development
-      </p>
+      </details>
     </aside>
   );
 }

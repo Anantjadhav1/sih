@@ -1,12 +1,18 @@
 """
 National Digital Platform for Land Governance - MVP Backend
-FastAPI server with two mocked endpoints: /api/simulate and /api/copilot
-No database needed for the hackathon demo - everything is in-memory / hardcoded math.
+FastAPI server: /api/simulate, /api/copilot, and the /api/ledger blockchain.
+No database needed for the hackathon demo - the simulation is in-memory math
+and the ledger persists to a JSON file (see blockchain.py).
 """
+
+from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from blockchain import DIFFICULTY, Blockchain
 
 app = FastAPI(title="Land Governance Policy Simulation API")
 
@@ -758,3 +764,112 @@ def copilot_chat(input: CopilotInput):
         )
 
     return CopilotOutput(response=reply)
+
+
+# ---------- Blockchain ledger of policy decisions ----------
+#
+# When an official approves or rejects a simulated policy, the decision AND the
+# evidence it was based on are sealed into a block. See blockchain.py for how
+# hashing, chaining and proof of work make that record tamper-evident.
+
+_LEDGER_DIR = Path(__file__).parent / "ledger_data"
+LEDGER = Blockchain(_LEDGER_DIR / "ledger.json", _LEDGER_DIR / "ledger_honest_copy.json")
+
+
+def decision_record(sim: SimulationOutput, decision: str, recorded_by: str) -> dict:
+    """The data sealed into a block: what was decided, and the numbers behind it."""
+    scope = sim.zone_name or f"{sim.district_name} district"
+    verb = "Approved" if decision == "approved" else "Rejected"
+    return {
+        "type": "policy_decision",
+        "title": f"{verb}: {sim.policy_lever_label}, {sim.agri_to_commercial_pct:g}% in {scope}",
+        "decision": decision,
+        "lever": sim.policy_lever,
+        "lever_label": sim.policy_lever_label,
+        "scope": scope,
+        "conversion_pct": sim.agri_to_commercial_pct,
+        "monsoon_intensity": sim.monsoon_intensity,
+        "population_growth_rate": sim.population_growth_rate,
+        "risk_score": sim.risk_score,
+        "risk_level": sim.risk_level,
+        "flood_risk_increase_pct": sim.predicted_flood_risk_increase_pct,
+        "displacement_persons": sim.predicted_displacement_persons,
+        "recorded_by": recorded_by,
+    }
+
+
+# First run only: seal two example decisions so the ledger has a visible chain
+# to walk through in a demo. Their numbers come from the real model above.
+if len(LEDGER.blocks) == 1:
+    for lever, zone, pct, decision in (
+        ("agri_residential", "kothrud", 20, "approved"),
+        ("wetland_encroachment", "hadapsar", 10, "rejected"),
+    ):
+        seed_sim = simulate_policy(
+            SimulationInput(agri_to_commercial_pct=pct, zone=zone, policy_lever=lever)
+        )
+        LEDGER.add(decision_record(seed_sim, decision, "Demo seed"))
+
+
+class RecordDecisionInput(BaseModel):
+    # The scenario being decided on. The server re-runs it rather than trusting
+    # numbers sent by the browser, so a client cannot seal made-up results.
+    simulation: SimulationInput
+    decision: Literal["approved", "rejected"]
+    # Demo role from the login screen. Production verifies a signed JWT here.
+    role: str
+
+
+class TamperInput(BaseModel):
+    index: int
+    reseal: bool = False
+
+
+def ledger_view() -> dict:
+    return {
+        "difficulty": DIFFICULTY,
+        "blocks": LEDGER.snapshot(),
+        "verification": LEDGER.verify(),
+    }
+
+
+@app.get("/api/ledger")
+def get_ledger():
+    """The whole chain plus a fresh verification. Anyone may read it."""
+    return ledger_view()
+
+
+@app.get("/api/ledger/verify")
+def verify_ledger():
+    """Recompute every hash and link from scratch."""
+    return LEDGER.verify()
+
+
+@app.post("/api/ledger/record")
+def record_decision(input: RecordDecisionInput):
+    """Only officials may write. Everyone else can still read and verify."""
+    if input.role != "official":
+        raise HTTPException(
+            status_code=403,
+            detail="Only government officials can record decisions. Anyone can verify the ledger.",
+        )
+    sim = simulate_policy(input.simulation)
+    block = LEDGER.add(decision_record(sim, input.decision, "Government Official"))
+    return {"block": block, **ledger_view()}
+
+
+@app.post("/api/ledger/tamper")
+def tamper_ledger(input: TamperInput):
+    """DEMO ONLY - forge an old block so the verification can catch it."""
+    try:
+        change = LEDGER.tamper(input.index, input.reseal)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"change": change, **ledger_view()}
+
+
+@app.post("/api/ledger/restore")
+def restore_ledger():
+    """DEMO ONLY - throw away the forged copy and reload the honest one."""
+    LEDGER.restore()
+    return ledger_view()

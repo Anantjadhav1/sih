@@ -49,6 +49,11 @@ export default function LoginScreen() {
                 {r.blurb}
               </span>
               <span className="mt-3 flex flex-wrap gap-1">
+                {r.canRecord && (
+                  <span className="rounded-full border border-primary/40 px-1.5 py-0.5 text-[10px] text-primary">
+                    Seal decisions
+                  </span>
+                )}
                 {r.canCreate && (
                   <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     Publish calls

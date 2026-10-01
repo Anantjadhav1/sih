@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Blocks,
   BookOpen,
   LayoutDashboard,
   Layers3,
@@ -13,15 +14,21 @@ import { cn } from "@/lib/utils";
 export type TabId =
   | "dashboard"
   | "simulator"
+  | "ledger"
   | "repository"
   | "gis"
   | "innovation";
 
+/*
+ * Order follows the story of a decision: overview, test a policy, seal the
+ * decision on the ledger, then the supporting evidence and opportunities.
+ */
 export const TABS: { id: TabId; label: string; icon: LucideIcon; hint: string }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, hint: "Platform overview" },
-  { id: "simulator", label: "Simulator", icon: SlidersHorizontal, hint: "Test a conversion policy" },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, hint: "What the platform does" },
+  { id: "simulator", label: "Simulator", icon: SlidersHorizontal, hint: "Test a land-use policy" },
+  { id: "ledger", label: "Blockchain Ledger", icon: Blocks, hint: "Tamper-proof record of decisions" },
   { id: "repository", label: "Knowledge Repository", icon: BookOpen, hint: "Research, datasets, policy" },
-  { id: "gis", label: "GIS Explorer", icon: Layers3, hint: "Browse thematic layers" },
+  { id: "gis", label: "GIS Explorer", icon: Layers3, hint: "Browse map layers" },
   { id: "innovation", label: "Innovation Hub", icon: Lightbulb, hint: "Hackathons and grants" },
 ];
 

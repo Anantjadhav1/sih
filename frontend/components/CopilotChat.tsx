@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { ChevronDown, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { askCopilot } from "@/lib/api";
@@ -21,7 +21,7 @@ const GREETING: Message = {
 const SUGGESTIONS = [
   "Why did flood risk increase?",
   "Who is displaced?",
-  "Cite the relevant policy",
+  "What about farmland?",
 ];
 
 export default function CopilotChat({
@@ -34,6 +34,8 @@ export default function CopilotChat({
   /** When set, the co-pilot answers about this zone rather than the district. */
   zoneId?: string | null;
 }) {
+  // Folded by default so the results stay the focus; one click opens it
+  const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -73,14 +75,31 @@ export default function CopilotChat({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col border-t border-border bg-surface-1">
-      <header className="flex shrink-0 items-center gap-2 px-4 py-2.5">
+    <section
+      className={cn(
+        "flex shrink-0 flex-col border-t border-border bg-surface-1",
+        open && "h-80"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex shrink-0 items-center gap-2 px-4 py-2.5 text-left hover:bg-accent/30"
+      >
         <Sparkles className="h-3.5 w-3.5 text-primary" />
-        <h2 className="text-xs font-semibold">Policy Co-Pilot</h2>
-        <span className="ml-auto rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
-          {districtName}
-        </span>
-      </header>
+        <span className="text-xs font-semibold">Ask the AI Co-Pilot</span>
+        <span className="text-[10px] text-muted-foreground">about {districtName}</span>
+        <ChevronDown
+          className={cn(
+            "ml-auto h-3.5 w-3.5 text-muted-foreground transition-transform",
+            !open && "rotate-180"
+          )}
+        />
+      </button>
+
+      {open && (
+        <>
 
       <div
         ref={scrollRef}
@@ -140,6 +159,8 @@ export default function CopilotChat({
           <Send className="h-3.5 w-3.5" />
         </Button>
       </div>
+        </>
+      )}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PolicySidebar from "@/components/PolicySidebar";
 import InsightsPanel from "@/components/InsightsPanel";
 import CopilotChat from "@/components/CopilotChat";
+import RecordDecision from "@/components/RecordDecision";
 import { usePolicyMap } from "@/components/maps/loaders";
 import { runSimulation, SimulationResult } from "@/lib/api";
 import { DEFAULT_DISTRICT_ID, getProfile } from "@/lib/districts";
@@ -13,9 +14,12 @@ import { useSession } from "@/lib/session";
 
 export default function SimulatorView({
   onScopeChange,
+  onOpenLedger,
 }: {
   /** Lets the shell show the active scope in its breadcrumb. */
   onScopeChange?: (label: string) => void;
+  /** Jump to the Blockchain Ledger tab after sealing a decision. */
+  onOpenLedger?: () => void;
 }) {
   const PolicyMap = usePolicyMap();
   const { recordRun } = useSession();
@@ -209,10 +213,9 @@ export default function SimulatorView({
         )}
       </div>
 
-      {/* Right rail: outputs on top, co-pilot pinned below */}
+      {/* Right rail: results, then the decision, with the co-pilot folded below */}
       <div className="flex w-full shrink-0 flex-col overflow-hidden border-border bg-surface-1 lg:w-[22rem] lg:border-l">
-        {/* Outputs take their natural height; the co-pilot fills the rest */}
-        <div className="min-h-0 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <InsightsPanel
             districtId={districtId}
             pct={pct}
@@ -221,6 +224,20 @@ export default function SimulatorView({
             error={error}
             scenarioMode={scenarioMode}
           />
+          <div className="px-4 pb-4">
+            <RecordDecision
+              scenario={{
+                pct,
+                district: districtId,
+                zone: zoneId,
+                lever: leverId,
+                monsoonIntensity: monsoon,
+                populationGrowthRate: growth,
+              }}
+              disabled={loading || !result || error !== null}
+              onOpenLedger={onOpenLedger}
+            />
+          </div>
         </div>
         <CopilotChat
           districtId={districtId}

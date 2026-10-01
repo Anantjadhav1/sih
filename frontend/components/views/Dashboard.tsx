@@ -3,24 +3,64 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  ArrowRight,
+  Blocks,
   BookOpen,
-  Droplets,
+  Layers3,
   Lightbulb,
-  MapPin,
-  Scale,
   SlidersHorizontal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import TrendChart from "@/components/charts/TrendChart";
 import type { TrendSeries } from "@/components/charts/TrendChart";
 import BarChart from "@/components/charts/BarChart";
+import type { TabId } from "@/components/TabNav";
 import { REPOSITORY } from "@/lib/repository";
 import { OPPORTUNITIES } from "@/lib/innovation";
 import { PUNE_ZONES } from "@/lib/zones";
 import { RISK_LEVELS, riskColor } from "@/lib/districts";
 import { fetchZones } from "@/lib/api";
 import type { ZoneSummary } from "@/lib/api";
+import { fetchLedger } from "@/lib/ledger";
+import type { LedgerState } from "@/lib/ledger";
 import { useSession } from "@/lib/session";
+
+/**
+ * The whole platform as one story, in the order a decision actually happens.
+ * Each step opens the tab that does it.
+ */
+const STEPS: { tab: TabId; icon: LucideIcon; title: string; text: string }[] = [
+  {
+    tab: "repository",
+    icon: BookOpen,
+    title: "Read the research",
+    text: "Papers, datasets and past policies on land use.",
+  },
+  {
+    tab: "gis",
+    icon: Layers3,
+    title: "Explore the map",
+    text: "Land use, climate risk and population, including live ISRO data.",
+  },
+  {
+    tab: "simulator",
+    icon: SlidersHorizontal,
+    title: "Test a policy",
+    text: "Pick a place and a change, and see the flood and displacement risk.",
+  },
+  {
+    tab: "ledger",
+    icon: Blocks,
+    title: "Seal the decision",
+    text: "Officials approve or reject it on a blockchain nobody can quietly edit.",
+  },
+  {
+    tab: "innovation",
+    icon: Lightbulb,
+    title: "Fund the fixes",
+    text: "Grants and hackathons to solve what the simulation revealed.",
+  },
+];
 
 /* Categorical slots 1-3, in fixed order - the validated all-pairs set. */
 const SERIES_COLORS = ["#3987e5", "#d95926", "#199e70"];
@@ -99,20 +139,27 @@ function bandFor(v: number): string {
   return "High";
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onNavigate }: { onNavigate?: (tab: TabId) => void }) {
   const { runs } = useSession();
   const [zones, setZones] = useState<ZoneSummary[] | null>(null);
+  const [ledger, setLedger] = useState<LedgerState | null>(null);
 
-  // Real baselines from the model, not restated constants
+  // Real baselines and the real ledger, not restated constants
   useEffect(() => {
     let alive = true;
     fetchZones("pune")
       .then((z) => alive && setZones(z))
       .catch(() => alive && setZones([]));
+    fetchLedger()
+      .then((l) => alive && setLedger(l))
+      .catch(() => alive && setLedger(null));
     return () => {
       alive = false;
     };
   }, []);
+
+  // The genesis block is the ledger's starting point, not a decision
+  const decisionCount = ledger ? ledger.blocks.length - 1 : null;
 
   const resilience = useMemo(() => {
     if (!zones || zones.length === 0) return null;
@@ -134,12 +181,45 @@ export default function Dashboard() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-6xl px-6 py-6">
         <header>
-          <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Platform overview for Pune district. Read-only - the interactive
-            tools live in the other tabs.
+          <h1 className="text-lg font-semibold tracking-tight">
+            Helping governments decide how land should be used
+          </h1>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Before farmland, forest or wetland is converted, this platform shows the flood and
+            displacement risk, and keeps a tamper-proof record of what was decided. Shown here
+            for Pune district.
           </p>
         </header>
+
+        {/* ---- How it works: the platform as one story ---- */}
+        <section className="mt-5">
+          <h2 className="text-xs font-semibold">How this platform works</h2>
+          <ol className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {STEPS.map((s, i) => (
+              <li key={s.tab}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate?.(s.tab)}
+                  className="group flex h-full w-full flex-col rounded-lg border border-border bg-surface-2/40 p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                      {i + 1}
+                    </span>
+                    <s.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  </span>
+                  <span className="mt-2 text-xs font-semibold">{s.title}</span>
+                  <span className="mt-1 flex-1 text-[11px] leading-relaxed text-muted-foreground">
+                    {s.text}
+                  </span>
+                  <span className="mt-2 flex items-center gap-1 text-[10px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                    Open <ArrowRight className="h-3 w-3" />
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
 
         {/* ---- Stat row ---- */}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -153,13 +233,19 @@ export default function Dashboard() {
             icon={SlidersHorizontal}
             label="Simulations this session"
             value={String(runs.length)}
-            sub={runs.length === 0 ? "none run yet" : "across all levers"}
+            sub={runs.length === 0 ? "none run yet" : "across all policy types"}
           />
           <StatCard
-            icon={MapPin}
-            label="Zones monitored"
-            value={String(PUNE_ZONES.length)}
-            sub="wards in Pune district"
+            icon={Blocks}
+            label="Decisions on blockchain"
+            value={decisionCount === null ? "–" : String(decisionCount)}
+            sub={
+              ledger === null
+                ? "ledger unreachable"
+                : ledger.verification.valid
+                  ? "✓ chain verified, nothing altered"
+                  : "✗ tampering detected - see ledger"
+            }
           />
           <StatCard
             icon={Lightbulb}
@@ -177,8 +263,8 @@ export default function Dashboard() {
 
           {/* ---- Climate resilience, from real zone baselines ---- */}
           <Panel
-            title="Climate resilience metrics"
-            note="standing flood risk · from model"
+            title="Flood risk today, by zone"
+            note={`${PUNE_ZONES.length} monitored zones · from model`}
           >
             {resilience === null ? (
               <p className="py-6 text-center text-[11px] text-muted-foreground">
@@ -268,23 +354,6 @@ export default function Dashboard() {
               </ul>
             )}
           </Panel>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-            <Droplets className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              Climate resilience figures are pulled from the same zone table the
-              Simulator runs on, so this page and the projections never disagree.
-            </span>
-          </p>
-          <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-            <Scale className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              Land-use trends and dispute counts are illustrative placeholders,
-              labelled as such on each card.
-            </span>
-          </p>
         </div>
       </div>
     </div>

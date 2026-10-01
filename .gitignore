@@ -6,3 +6,5 @@ __pycache__/
 .env.local
 .env
 tsconfig.tsbuildinfo
+# Local blockchain state - each machine mines its own demo ledger
+backend/ledger_data/
