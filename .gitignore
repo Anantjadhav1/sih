@@ -10,3 +10,5 @@ tsconfig.tsbuildinfo
 backend/ledger_data/
 # Citizen photo uploads - user content, never committed
 backend/ground_truth/
+# Token signing key - secret, generated on first run
+backend/.auth_secret

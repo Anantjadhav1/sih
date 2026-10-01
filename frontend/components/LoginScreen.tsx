@@ -4,7 +4,7 @@ import { ArrowRight, Layers, ShieldCheck } from "lucide-react";
 import { ROLES, useRole } from "@/lib/roles";
 
 export default function LoginScreen() {
-  const { setRole } = useRole();
+  const { setRole, signingIn, signInError } = useRole();
 
   return (
     <div className="flex h-screen w-screen items-center justify-center overflow-y-auto bg-background p-6">
@@ -39,11 +39,15 @@ export default function LoginScreen() {
               key={r.id}
               type="button"
               onClick={() => setRole(r.id)}
-              className="group flex flex-col rounded-lg border border-border bg-surface-2/50 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/10"
+              disabled={signingIn !== null}
+              className="group flex flex-col rounded-lg border border-border bg-surface-2/50 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/10 disabled:cursor-wait disabled:opacity-70"
             >
               <span className="flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold">{r.label}</span>
                 <ArrowRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+              </span>
+              <span className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                {signingIn === r.id ? "Signing in…" : r.username}
               </span>
               <span className="mt-1.5 flex-1 text-[11px] leading-relaxed text-muted-foreground">
                 {r.blurb}
@@ -66,7 +70,7 @@ export default function LoginScreen() {
                 )}
                 {!r.canApply && !r.canCreate && (
                   <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    Read-only
+                    Send photos
                   </span>
                 )}
               </span>
@@ -74,12 +78,19 @@ export default function LoginScreen() {
           ))}
         </div>
 
+        {signInError && (
+          <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+            {signInError}
+          </p>
+        )}
+
         <p className="mt-5 flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
           <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Demo accounts, no password. Role selection shapes the interface only
-            and grants no real privilege. The production build issues a signed
-            JWT and enforces these permissions server-side.
+            One-click demo accounts: the button fills in the demo password for you. The server
+            checks it and returns a signed pass, and every change you make is checked against
+            that signature - so the server, not your browser, decides what you&rsquo;re allowed
+            to do.
           </span>
         </p>
       </div>

@@ -15,11 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from auth import authenticate, current_user, issue_token
 from blockchain import DIFFICULTY, Blockchain
 
 app = FastAPI(title="Land Governance Policy Simulation API")
@@ -827,8 +828,33 @@ class RecordDecisionInput(BaseModel):
     # numbers sent by the browser, so a client cannot seal made-up results.
     simulation: SimulationInput
     decision: Literal["approved", "rejected"]
-    # Demo role from the login screen. Production verifies a signed JWT here.
-    role: str
+    # No role field: who is asking comes from the signed pass (see auth.py),
+    # never from the request body.
+
+
+class LoginInput(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(input: LoginInput):
+    """Check the password and hand back a signed pass for later requests."""
+    user = authenticate(input.username, input.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Wrong username or password.")
+    token, expires_at = issue_token(input.username)
+    return {
+        "token": token,
+        "expires_at": expires_at,
+        "user": {"username": input.username, "role": user["role"], "name": user["name"]},
+    }
+
+
+@app.get("/api/auth/me")
+def whoami(user: dict = Depends(current_user)):
+    """Who the server thinks you are, read from your signed pass."""
+    return {"username": user["sub"], "role": user["role"], "name": user["name"]}
 
 
 class TamperInput(BaseModel):
@@ -857,15 +883,18 @@ def verify_ledger():
 
 
 @app.post("/api/ledger/record")
-def record_decision(input: RecordDecisionInput):
+def record_decision(input: RecordDecisionInput, user: dict = Depends(current_user)):
     """Only officials may write. Everyone else can still read and verify."""
-    if input.role != "official":
+    if user["role"] != "official":
         raise HTTPException(
             status_code=403,
             detail="Only government officials can record decisions. Anyone can verify the ledger.",
         )
     sim = simulate_policy(input.simulation)
-    block = LEDGER.add(decision_record(sim, input.decision, "Government Official"))
+    record = decision_record(sim, input.decision, user["name"])
+    # Which account sealed it - accountability, taken from the signed pass
+    record["recorded_by_user"] = user["sub"]
+    block = LEDGER.add(record)
     return {"block": block, **ledger_view()}
 
 
@@ -912,12 +941,6 @@ GT_CATEGORIES = [
 ]
 GT_MAX_BYTES = 5 * 1024 * 1024
 
-ROLE_LABELS = {
-    "official": "Government Official",
-    "researcher": "Researcher",
-    "public": "Public User",
-}
-
 
 def _image_extension(raw: bytes) -> str | None:
     """Identify the format from the file's first bytes, not its claimed name."""
@@ -942,16 +965,13 @@ class GroundTruthInput(BaseModel):
     lng: float = Field(ge=-180, le=180)
     category: str
     note: str = Field(default="", max_length=200)
-    role: str
 
 
 @app.post("/api/ground-truth")
-def submit_ground_truth(input: GroundTruthInput):
-    """Anyone may report. The photo's fingerprint is sealed as a new block."""
+def submit_ground_truth(input: GroundTruthInput, user: dict = Depends(current_user)):
+    """Any signed-in user may report. The photo's fingerprint is sealed as a new block."""
     if input.category not in GT_CATEGORIES:
         raise HTTPException(status_code=400, detail="Unknown category.")
-    if input.role not in ROLE_LABELS:
-        raise HTTPException(status_code=400, detail="Unknown role.")
 
     try:
         raw = base64.b64decode(input.image_base64, validate=True)
@@ -980,7 +1000,7 @@ def submit_ground_truth(input: GroundTruthInput):
         _GT_PHOTOS.mkdir(parents=True, exist_ok=True)
         (_GT_PHOTOS / photo_file).write_bytes(raw)
 
-        recorded_by = ROLE_LABELS[input.role]
+        recorded_by = user["name"]
         block = LEDGER.add(
             {
                 "type": "ground_truth",
@@ -993,6 +1013,7 @@ def submit_ground_truth(input: GroundTruthInput):
                 "photo_sha256": sha,
                 "photo_bytes": len(raw),
                 "recorded_by": recorded_by,
+                "recorded_by_user": user["sub"],
             }
         )
         observation = {

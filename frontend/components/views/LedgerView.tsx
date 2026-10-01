@@ -167,7 +167,12 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
             {d.note && <dd className="text-muted-foreground">&ldquo;{d.note}&rdquo;</dd>}
             <div className="flex gap-1.5">
               <dt className="text-muted-foreground">By</dt>
-              <dd>{d.recorded_by}</dd>
+              <dd>
+                {d.recorded_by}
+                {d.recorded_by_user && (
+                  <span className="font-mono text-muted-foreground"> ({d.recorded_by_user})</span>
+                )}
+              </dd>
             </div>
             <div className="flex gap-1.5">
               <dt className="text-muted-foreground">Photo fingerprint</dt>
@@ -199,7 +204,12 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
           </div>
           <div className="flex gap-1.5">
             <dt className="text-muted-foreground">By</dt>
-            <dd>{d.recorded_by}</dd>
+            <dd>
+              {d.recorded_by}
+              {d.recorded_by_user && (
+                <span className="font-mono text-muted-foreground"> ({d.recorded_by_user})</span>
+              )}
+            </dd>
           </div>
         </dl>
       )}

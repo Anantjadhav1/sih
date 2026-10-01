@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Camera, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isAuthError } from "@/lib/apiError";
 import { GT_CATEGORIES, GT_MAX_BYTES, sha256Hex, submitObservation } from "@/lib/groundTruth";
 import { shortHash } from "@/lib/ledger";
 import { useRole } from "@/lib/roles";
@@ -31,7 +32,7 @@ export default function CitizenReportPanel({
   onCancel: () => void;
   onSubmitted: () => void;
 }) {
-  const { role } = useRole();
+  const { token, signOut } = useRole();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [browserSha, setBrowserSha] = useState<string | null>(null);
@@ -76,7 +77,7 @@ export default function CitizenReportPanel({
   }
 
   async function submit() {
-    if (!file || !draftLocation || !role) return;
+    if (!file || !draftLocation || !token) return;
     setBusy(true);
     setError(null);
     try {
@@ -86,7 +87,7 @@ export default function CitizenReportPanel({
         lng: draftLocation[1],
         category,
         note,
-        role: role.id,
+        token,
       });
       setReceipt({
         blockIndex: res.block.index,
@@ -96,6 +97,8 @@ export default function CitizenReportPanel({
       reset();
       onSubmitted();
     } catch (e) {
+      // The server refused the pass (expired or invalid) - sign in again
+      if (isAuthError(e)) return signOut();
       setError((e as Error).message);
     } finally {
       setBusy(false);

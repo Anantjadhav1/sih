@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Blocks, FileText, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isAuthError } from "@/lib/apiError";
 import { recordDecision, shortHash } from "@/lib/ledger";
 import type { Block, DecisionScenario } from "@/lib/ledger";
 import { useRole } from "@/lib/roles";
@@ -22,7 +23,7 @@ export default function RecordDecision({
   disabled: boolean;
   onOpenLedger?: () => void;
 }) {
-  const { role } = useRole();
+  const { role, token, signOut } = useRole();
   const [busy, setBusy] = useState<"approved" | "rejected" | null>(null);
   const [sealed, setSealed] = useState<Block | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,13 +36,15 @@ export default function RecordDecision({
   }, [scenarioKey]);
 
   async function seal(decision: "approved" | "rejected") {
-    if (!role) return;
+    if (!token) return;
     setBusy(decision);
     setError(null);
     try {
-      const res = await recordDecision(scenario, decision, role.id);
+      const res = await recordDecision(scenario, decision, token);
       setSealed(res.block);
     } catch (e) {
+      // The server refused the pass (expired or invalid) - sign in again
+      if (isAuthError(e)) return signOut();
       setError((e as Error).message);
     } finally {
       setBusy(null);

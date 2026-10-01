@@ -158,7 +158,15 @@ export default function ReportPage() {
                   <Row label="Population growth">
                     {d.population_growth_rate?.toFixed(1)}% per year
                   </Row>
-                  <Row label="Decided by">{d.recorded_by}</Row>
+                  <Row label="Decided by">
+                    {d.recorded_by}
+                    {d.recorded_by_user && (
+                      <span className="font-mono text-[12px] text-neutral-500">
+                        {" "}
+                        ({d.recorded_by_user})
+                      </span>
+                    )}
+                  </Row>
                 </tbody>
               </table>
             </Section>

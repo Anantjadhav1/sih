@@ -78,6 +78,9 @@ export default function TopBar({
                   role="menu"
                   className="absolute right-0 z-50 mt-1.5 w-60 rounded-lg border border-border bg-popover p-1 shadow-2xl"
                 >
+                  <p className="px-2 pt-1.5 text-[10px] text-muted-foreground">
+                    Signed in as <span className="font-mono">{role.username}</span>
+                  </p>
                   <p className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Switch role
                   </p>

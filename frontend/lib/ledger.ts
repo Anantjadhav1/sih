@@ -2,6 +2,8 @@
  * Client for the blockchain ledger of policy decisions (backend/blockchain.py).
  * Reading and verifying are open to everyone; only officials may record.
  */
+import { apiError } from "@/lib/apiError";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export interface DecisionData {
@@ -22,6 +24,8 @@ export interface DecisionData {
   risk_level?: string;
   flood_risk_increase_pct?: number;
   displacement_persons?: number;
+  /** Signed-in account that sealed the block (from the server-verified pass) */
+  recorded_by_user?: string;
   monsoon_intensity?: number;
   population_growth_rate?: number;
   // Present on blocks sealed after reports were added
@@ -71,15 +75,16 @@ export interface DecisionScenario {
   populationGrowthRate: number;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
+async function call<T>(path: string, init?: RequestInit, token?: string | null): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: {
+      "Content-Type": "application/json",
+      // The signed pass from sign-in; the server reads the role from it
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Ledger request failed (${res.status})`);
-  }
+  if (!res.ok) throw await apiError(res, "Ledger request failed");
   return res.json();
 }
 
@@ -88,25 +93,28 @@ export const fetchLedger = () => call<LedgerState>("/api/ledger");
 export function recordDecision(
   scenario: DecisionScenario,
   decision: "approved" | "rejected",
-  role: string
+  token: string
 ) {
-  return call<LedgerState & { block: Block }>("/api/ledger/record", {
-    method: "POST",
-    body: JSON.stringify({
-      // The server re-runs this scenario itself, so the sealed numbers can't
-      // be edited in the browser on the way in.
-      simulation: {
-        agri_to_commercial_pct: scenario.pct,
-        district: scenario.district,
-        zone: scenario.zone,
-        policy_lever: scenario.lever,
-        monsoon_intensity: scenario.monsoonIntensity,
-        population_growth_rate: scenario.populationGrowthRate,
-      },
-      decision,
-      role,
-    }),
-  });
+  return call<LedgerState & { block: Block }>(
+    "/api/ledger/record",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        // The server re-runs this scenario itself, so the sealed numbers can't
+        // be edited in the browser on the way in.
+        simulation: {
+          agri_to_commercial_pct: scenario.pct,
+          district: scenario.district,
+          zone: scenario.zone,
+          policy_lever: scenario.lever,
+          monsoon_intensity: scenario.monsoonIntensity,
+          population_growth_rate: scenario.populationGrowthRate,
+        },
+        decision,
+      }),
+    },
+    token
+  );
 }
 
 export const tamperBlock = (index: number, reseal: boolean) =>

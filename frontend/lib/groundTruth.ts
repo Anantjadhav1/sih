@@ -2,6 +2,8 @@
  * Citizen ground-truth photos (backend: /api/ground-truth).
  * Anyone can submit; each photo's fingerprint is sealed on the ledger.
  */
+import { apiError } from "@/lib/apiError";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export const GT_CATEGORIES = [
@@ -68,23 +70,23 @@ export async function submitObservation(args: {
   lng: number;
   category: string;
   note: string;
-  role: string;
+  /** Signed pass from sign-in; the server reads who submitted it from this */
+  token: string;
 }): Promise<{ observation: Observation; block: { index: number; hash: string; nonce: number; data: { photo_sha256: string } } }> {
   const res = await fetch(`${API_BASE}/api/ground-truth`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.token}`,
+    },
     body: JSON.stringify({
       image_base64: await toBase64(args.file),
       lat: args.lat,
       lng: args.lng,
       category: args.category,
       note: args.note,
-      role: args.role,
     }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Upload failed (${res.status})`);
-  }
+  if (!res.ok) throw await apiError(res, "Upload failed");
   return res.json();
 }
