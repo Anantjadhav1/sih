@@ -5,8 +5,15 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export interface DecisionData {
-  type: "genesis" | "policy_decision";
+  type: "genesis" | "policy_decision" | "ground_truth";
   title: string;
+  // Citizen ground-truth photo blocks
+  category?: string;
+  note?: string;
+  lat?: number;
+  lng?: number;
+  photo_file?: string;
+  photo_sha256?: string;
   decision?: "approved" | "rejected";
   lever_label?: string;
   scope?: string;

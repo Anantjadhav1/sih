@@ -24,6 +24,7 @@ import {
   tamperBlock,
 } from "@/lib/ledger";
 import type { Block, BlockCheck, LedgerState, ReportCheck } from "@/lib/ledger";
+import { photoUrl } from "@/lib/groundTruth";
 import { useRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -127,7 +128,12 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
           </span>
         )}
         <span className="ml-auto text-[11px] text-muted-foreground">{when(block.timestamp)}</span>
-        {!isGenesis && (
+        {d.type === "ground_truth" && (
+          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Citizen photo
+          </span>
+        )}
+        {d.type === "policy_decision" && (
           <a
             href={`/report?block=${block.index}`}
             target="_blank"
@@ -148,6 +154,28 @@ function BlockCard({ block, check }: { block: Block; check: BlockCheck }) {
       </header>
 
       {!isGenesis && <h3 className="mt-2 text-sm font-medium leading-snug">{d.title}</h3>}
+
+      {d.type === "ground_truth" && d.photo_file && (
+        <div className="mt-2 flex gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={photoUrl(d.photo_file)}
+            alt={`${d.category} reported by ${d.recorded_by}`}
+            className="h-16 w-24 shrink-0 rounded object-cover"
+          />
+          <dl className="space-y-0.5 text-[11px]">
+            {d.note && <dd className="text-muted-foreground">&ldquo;{d.note}&rdquo;</dd>}
+            <div className="flex gap-1.5">
+              <dt className="text-muted-foreground">By</dt>
+              <dd>{d.recorded_by}</dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="text-muted-foreground">Photo fingerprint</dt>
+              <dd className="font-mono">{shortHash(d.photo_sha256 ?? "")}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
 
       {d.risk_score !== undefined && (
         <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
@@ -287,8 +315,8 @@ export default function LedgerView() {
           <h1 className="text-lg font-semibold tracking-tight">Blockchain Ledger</h1>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Every policy an official approves or rejects is sealed here together with the
-            risk numbers it was decided on. Anyone can check that no old record has been
-            changed. You are viewing as{" "}
+            risk numbers it was decided on, alongside the fingerprint of every citizen photo.
+            Anyone can check that no old record has been changed. You are viewing as{" "}
             <span className="font-medium text-foreground">{role?.label}</span>
             {role?.canRecord
               ? " - you can add decisions from the Simulator."

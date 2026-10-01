@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Layers3, Satellite, SatelliteDish } from "lucide-react";
 import { useExplorerMap } from "@/components/maps/loaders";
+import CitizenReportPanel from "@/components/CitizenReportPanel";
 import { GIS_LAYERS, layerColor } from "@/lib/gisLayers";
 import { DEFAULT_DISTRICT_ID, getProfile } from "@/lib/districts";
 import { probeBhuvan } from "@/lib/bhuvan";
 import type { BhuvanStatus } from "@/lib/bhuvan";
+import { fetchObservations } from "@/lib/groundTruth";
+import type { Observation } from "@/lib/groundTruth";
 import { cn } from "@/lib/utils";
 
 export default function GisExplorer() {
@@ -14,6 +17,19 @@ export default function GisExplorer() {
   const [districtId] = useState(DEFAULT_DISTRICT_ID);
   // Open on one layer so the map is never a blank basemap
   const [activeIds, setActiveIds] = useState<string[]>(["lulc"]);
+
+  // Citizen ground-truth photos, and the "place a new one" interaction
+  const [observations, setObservations] = useState<Observation[]>([]);
+  const [showObservations, setShowObservations] = useState(true);
+  const [pickMode, setPickMode] = useState(false);
+  const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null);
+
+  const loadObservations = useCallback(() => {
+    fetchObservations()
+      .then(setObservations)
+      .catch(() => setObservations([]));
+  }, []);
+  useEffect(loadObservations, [loadObservations]);
 
   /*
    * Bhuvan availability is decided once, on mount, by asking for a single tile.
@@ -162,7 +178,54 @@ export default function GisExplorer() {
               </label>
             );
           })}
+
+          {/* Citizen evidence, as a fifth toggle in the same list */}
+          <label
+            className={cn(
+              "flex cursor-pointer gap-2.5 rounded-lg border p-2.5 transition-colors",
+              showObservations
+                ? "border-primary/40 bg-primary/10"
+                : "border-border bg-surface-2/50 hover:bg-accent/40"
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={showObservations}
+              onChange={() => setShowObservations((v) => !v)}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[hsl(var(--primary))]"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-[#0b1220] bg-white" />
+                <span className="text-xs font-medium">Citizen photos</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {observations.length}
+                </span>
+              </span>
+              <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                Ground-truth photos, each fingerprinted on the blockchain
+              </span>
+            </span>
+          </label>
         </fieldset>
+
+        <CitizenReportPanel
+          pickMode={pickMode}
+          draftLocation={draftLocation}
+          onStart={() => {
+            setShowObservations(true);
+            setPickMode(true);
+          }}
+          onCancel={() => {
+            setPickMode(false);
+            setDraftLocation(null);
+          }}
+          onSubmitted={() => {
+            setPickMode(false);
+            setDraftLocation(null);
+            loadObservations();
+          }}
+        />
 
         <p className="mt-auto border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
           {bhuvanStatus === "live"
@@ -178,6 +241,11 @@ export default function GisExplorer() {
             activeLayerIds={activeIds}
             bhuvanStatus={bhuvanStatus}
             onBhuvanFailure={handleBhuvanFailure}
+            observations={observations}
+            showObservations={showObservations}
+            pickMode={pickMode}
+            draftLocation={draftLocation}
+            onPick={(lat, lng) => setDraftLocation([lat, lng])}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-surface-1 text-xs text-muted-foreground">

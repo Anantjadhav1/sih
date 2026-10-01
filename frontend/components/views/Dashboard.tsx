@@ -40,7 +40,7 @@ const STEPS: { tab: TabId; icon: LucideIcon; title: string; text: string }[] = [
     tab: "gis",
     icon: Layers3,
     title: "Explore the map",
-    text: "Land use, climate risk and population, including live ISRO data.",
+    text: "Live ISRO land-use data, climate risk, and photos sent in by citizens.",
   },
   {
     tab: "simulator",
@@ -158,8 +158,13 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (tab: TabId) =>
     };
   }, []);
 
-  // The genesis block is the ledger's starting point, not a decision
-  const decisionCount = ledger ? ledger.blocks.length - 1 : null;
+  // Count by record type - the genesis block is a starting point, not a record
+  const decisionCount = ledger
+    ? ledger.blocks.filter((b) => b.data.type === "policy_decision").length
+    : null;
+  const photoCount = ledger
+    ? ledger.blocks.filter((b) => b.data.type === "ground_truth").length
+    : 0;
 
   const resilience = useMemo(() => {
     if (!zones || zones.length === 0) return null;
@@ -242,9 +247,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (tab: TabId) =>
             sub={
               ledger === null
                 ? "ledger unreachable"
-                : ledger.verification.valid
-                  ? "✓ chain verified, nothing altered"
-                  : "✗ tampering detected - see ledger"
+                : `${photoCount} citizen photo${photoCount === 1 ? "" : "s"} · ${
+                    ledger.verification.valid ? "✓ chain verified" : "✗ tampering detected"
+                  }`
             }
           />
           <StatCard

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Circle,
+  CircleMarker,
   MapContainer,
   Pane,
   TileLayer,
@@ -10,13 +11,36 @@ import {
   WMSTileLayer,
   ZoomControl,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import { GIS_LAYERS, layerColor } from "@/lib/gisLayers";
-import { getFeature, getProfile } from "@/lib/districts";
+import { RISK_COLORS, getFeature, getProfile } from "@/lib/districts";
 import { BHUVAN_WMS_URL, bhuvanLayerFor } from "@/lib/bhuvan";
-import type { BhuvanStatus } from "@/lib/bhuvan";
+import { photoUrl } from "@/lib/groundTruth";
 import type { ExplorerMapProps } from "@/components/maps/loaders";
+
+/**
+ * While placing a citizen photo, a map click picks its location. The cursor
+ * turns into a crosshair so it is obvious the next click does something.
+ */
+function PickLocation({
+  enabled,
+  onPick,
+}: {
+  enabled: boolean;
+  onPick?: (lat: number, lng: number) => void;
+}) {
+  const map = useMapEvents({
+    click(e) {
+      if (enabled) onPick?.(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  useEffect(() => {
+    map.getContainer().style.cursor = enabled ? "crosshair" : "";
+  }, [map, enabled]);
+  return null;
+}
 
 const FIT_PADDING: [number, number] = [36, 36];
 
@@ -55,6 +79,11 @@ export default function ExplorerMap({
   activeLayerIds,
   bhuvanStatus = "fallback",
   onBhuvanFailure,
+  observations = [],
+  showObservations = true,
+  pickMode = false,
+  draftLocation = null,
+  onPick,
 }: ExplorerMapProps) {
   const [mapKey] = useState(() => `explorer-map-${explorerSeq++}`);
   const feature = getFeature(districtId);
@@ -174,6 +203,75 @@ export default function ExplorerMap({
         />
       </Pane>
 
+      <PickLocation enabled={pickMode} onPick={onPick} />
+
+      {/*
+        Citizen photo pins sit above the place-name labels so they stay
+        clickable. Neutral white rather than a layer hue: these are evidence
+        points, not one of the thematic layers, and a failed integrity check
+        turns the ring red (with the reason written in the tooltip).
+      */}
+      <Pane name="citizen-pins" style={{ zIndex: 660 }}>
+        {showObservations &&
+          observations.map((o) => {
+            const ok = o.photo_intact && o.block_intact;
+            return (
+              <CircleMarker
+                key={o.block_index}
+                center={[o.lat, o.lng]}
+                radius={7}
+                pathOptions={{
+                  color: ok ? "#0b1220" : RISK_COLORS.High,
+                  weight: ok ? 2 : 3,
+                  fillColor: "#ffffff",
+                  fillOpacity: 0.95,
+                }}
+              >
+                <Tooltip direction="top" offset={[0, -6]} className="district-tooltip">
+                  <div className="w-52 rounded-md border border-border bg-card p-2 text-card-foreground shadow-xl">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photoUrl(o.photo_file)}
+                      alt={`${o.category} reported by a citizen`}
+                      className="h-28 w-full rounded object-cover"
+                    />
+                    <p className="mt-1.5 text-xs font-semibold">{o.category}</p>
+                    {o.note && (
+                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                        {o.note}
+                      </p>
+                    )}
+                    <p
+                      className="mt-1 text-[10px] font-medium"
+                      style={{ color: ok ? RISK_COLORS.Low : RISK_COLORS.High }}
+                    >
+                      {ok
+                        ? `✓ Photo matches its blockchain fingerprint (Block #${o.block_index})`
+                        : !o.photo_intact
+                          ? "✗ Photo file was changed after it was sealed"
+                          : `✗ Block #${o.block_index} failed verification`}
+                    </p>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
+
+        {draftLocation && (
+          <CircleMarker
+            center={draftLocation}
+            radius={9}
+            pathOptions={{
+              color: "#ffffff",
+              weight: 2,
+              dashArray: "3 3",
+              fillColor: "#3987e5",
+              fillOpacity: 0.6,
+            }}
+          />
+        )}
+      </Pane>
+
       <div className="pointer-events-none absolute left-3 top-3 z-[1000] rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur-md">
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           Extent
@@ -187,12 +285,23 @@ export default function ExplorerMap({
       </div>
 
       {/* Legend names every active layer, so colour never carries identity alone */}
-      {active.length > 0 && (
+      {(active.length > 0 || (showObservations && observations.length > 0)) && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] max-w-[15rem] rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur-md">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Active layers
           </p>
           <ul className="mt-1.5 space-y-1.5">
+            {showObservations && observations.length > 0 && (
+              <li className="text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-[#0b1220] bg-white" />
+                  <span className="font-medium">Citizen photos ({observations.length})</span>
+                </span>
+                <span className="ml-4 block text-[10px] text-muted-foreground">
+                  hover a pin to see the photo
+                </span>
+              </li>
+            )}
             {active.map((l) => (
               <li key={l.id} className="text-xs">
                 <span className="flex items-center gap-1.5">

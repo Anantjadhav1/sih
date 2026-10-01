@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ComponentType } from "react";
 import type { SimulationResult } from "@/lib/api";
 import type { Zone } from "@/lib/zones";
+import type { Observation } from "@/lib/groundTruth";
 
 export interface PolicyMapProps {
   districtId: string;
@@ -21,6 +22,13 @@ export interface ExplorerMapProps {
   bhuvanStatus?: "probing" | "live" | "fallback";
   /** Called when live tiles start failing, so the view can drop to the mock. */
   onBhuvanFailure?: () => void;
+  /** Citizen ground-truth photos to pin on the map */
+  observations?: Observation[];
+  showObservations?: boolean;
+  /** While true, a map click picks the location for a new photo */
+  pickMode?: boolean;
+  draftLocation?: [number, number] | null;
+  onPick?: (lat: number, lng: number) => void;
 }
 
 /*

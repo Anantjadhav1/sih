@@ -8,3 +8,5 @@ __pycache__/
 tsconfig.tsbuildinfo
 # Local blockchain state - each machine mines its own demo ledger
 backend/ledger_data/
+# Citizen photo uploads - user content, never committed
+backend/ground_truth/

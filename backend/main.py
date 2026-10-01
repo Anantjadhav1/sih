@@ -5,11 +5,19 @@ No database needed for the hackathon demo - the simulation is in-memory math
 and the ledger persists to a JSON file (see blockchain.py).
 """
 
+import base64
+import binascii
+import hashlib
+import json
+import re
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from blockchain import DIFFICULTY, Blockchain
@@ -876,3 +884,165 @@ def restore_ledger():
     """DEMO ONLY - throw away the forged copy and reload the honest one."""
     LEDGER.restore()
     return ledger_view()
+
+
+# ---------- Citizen ground-truth photos ----------
+#
+# Anyone can photograph what is actually happening on the ground - flooding,
+# a new building on a lake edge - and pin it to the map. The photo's SHA-256
+# fingerprint is sealed on the ledger, so if the stored file is ever swapped
+# for a different picture, the fingerprints stop matching and the map says so.
+#
+# Photos arrive as base64 inside JSON rather than as a multipart upload:
+# FastAPI's multipart support needs the extra python-multipart package, and a
+# 5 MB cap keeps the JSON size reasonable.
+
+_GT_DIR = Path(__file__).parent / "ground_truth"
+_GT_PHOTOS = _GT_DIR / "photos"
+_GT_INDEX = _GT_DIR / "observations.json"
+_GT_LOCK = threading.Lock()
+
+GT_CATEGORIES = [
+    "Flooding",
+    "New construction",
+    "Encroachment on water body",
+    "Farmland",
+    "Tree cutting",
+    "Other",
+]
+GT_MAX_BYTES = 5 * 1024 * 1024
+
+ROLE_LABELS = {
+    "official": "Government Official",
+    "researcher": "Researcher",
+    "public": "Public User",
+}
+
+
+def _image_extension(raw: bytes) -> str | None:
+    """Identify the format from the file's first bytes, not its claimed name."""
+    if raw[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _load_observations() -> list[dict]:
+    if not _GT_INDEX.exists():
+        return []
+    return json.loads(_GT_INDEX.read_text(encoding="utf-8"))
+
+
+class GroundTruthInput(BaseModel):
+    image_base64: str
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    category: str
+    note: str = Field(default="", max_length=200)
+    role: str
+
+
+@app.post("/api/ground-truth")
+def submit_ground_truth(input: GroundTruthInput):
+    """Anyone may report. The photo's fingerprint is sealed as a new block."""
+    if input.category not in GT_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Unknown category.")
+    if input.role not in ROLE_LABELS:
+        raise HTTPException(status_code=400, detail="Unknown role.")
+
+    try:
+        raw = base64.b64decode(input.image_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="The photo could not be read.")
+    if len(raw) > GT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Photos must be under 5 MB.")
+    ext = _image_extension(raw)
+    if ext is None:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG or WebP photos are accepted.")
+
+    sha = hashlib.sha256(raw).hexdigest()
+    photo_file = f"{sha}.{ext}"
+
+    with _GT_LOCK:
+        observations = _load_observations()
+        # Stored files are named by their fingerprint, so the name is the check
+        existing = next((o for o in observations if o["photo_file"].startswith(f"{sha}.")), None)
+        if existing:
+            # Same fingerprint means byte-for-byte the same photo
+            raise HTTPException(
+                status_code=409,
+                detail=f"This exact photo is already on the ledger in Block #{existing['block_index']}.",
+            )
+
+        _GT_PHOTOS.mkdir(parents=True, exist_ok=True)
+        (_GT_PHOTOS / photo_file).write_bytes(raw)
+
+        recorded_by = ROLE_LABELS[input.role]
+        block = LEDGER.add(
+            {
+                "type": "ground_truth",
+                "title": f"Citizen photo: {input.category} at {input.lat:.4f}, {input.lng:.4f}",
+                "category": input.category,
+                "note": input.note.strip(),
+                "lat": round(input.lat, 6),
+                "lng": round(input.lng, 6),
+                "photo_file": photo_file,
+                "photo_sha256": sha,
+                "photo_bytes": len(raw),
+                "recorded_by": recorded_by,
+            }
+        )
+        observation = {
+            "block_index": block["index"],
+            "timestamp": block["timestamp"],
+            "lat": round(input.lat, 6),
+            "lng": round(input.lng, 6),
+            "category": input.category,
+            "note": input.note.strip(),
+            "photo_file": photo_file,
+            "recorded_by": recorded_by,
+        }
+        observations.append(observation)
+        _GT_INDEX.write_text(json.dumps(observations, indent=2), encoding="utf-8")
+
+    return {"observation": observation, "block": block}
+
+
+@app.get("/api/ground-truth")
+def list_ground_truth():
+    """
+    Every citizen photo, each re-checked against the ledger: the fingerprint
+    is recomputed from the stored file and compared with the one sealed in
+    its block - not with our own index file, which an insider could edit.
+    """
+    blocks = {b["index"]: b for b in LEDGER.snapshot()}
+    checks = {c["index"]: c for c in LEDGER.verify()["blocks"]}
+    out = []
+    for o in _load_observations():
+        block = blocks.get(o["block_index"])
+        sealed_sha = block["data"].get("photo_sha256") if block else None
+        path = _GT_PHOTOS / o["photo_file"]
+        actual_sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        out.append(
+            {
+                **o,
+                "sealed_sha256": sealed_sha,
+                "photo_intact": actual_sha is not None and actual_sha == sealed_sha,
+                "block_intact": block is not None and checks[o["block_index"]]["problem"] is None,
+            }
+        )
+    return {"categories": GT_CATEGORIES, "observations": out}
+
+
+_PHOTO_NAME = re.compile(r"^[0-9a-f]{64}\.(jpg|png|webp)$")
+
+
+@app.get("/api/ground-truth/photo/{name}")
+def ground_truth_photo(name: str):
+    # Strict pattern: only files this server named itself, never a path
+    if not _PHOTO_NAME.match(name) or not (_GT_PHOTOS / name).exists():
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    return FileResponse(_GT_PHOTOS / name)
