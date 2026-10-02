@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { RISK_COLORS, RISK_MEANING } from "@/lib/districts";
-import { fetchLedger } from "@/lib/ledger";
-import type { Block, BlockCheck } from "@/lib/ledger";
+import { fetchLedger, signerOf } from "@/lib/ledger";
+import type { Block, BlockCheck, Member } from "@/lib/ledger";
 
 /**
  * A printable one-page report of one sealed decision: /report?block=N
@@ -52,6 +52,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export default function ReportPage() {
   const [block, setBlock] = useState<Block | null>(null);
   const [check, setCheck] = useState<BlockCheck | null>(null);
+  const [signer, setSigner] = useState<Member | null>(null);
+  // How many offices hold this exact block in their copy of the ledger
+  const [holders, setHolders] = useState<{ held: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checkedAt] = useState(() => new Date().toISOString());
 
@@ -68,6 +71,12 @@ export default function ReportPage() {
         }
         setBlock(b);
         setCheck(ledger.verification.blocks.find((c) => c.index === index) ?? null);
+        setSigner(signerOf(ledger.blocks, b));
+        const offices = ledger.network?.offices ?? [];
+        setHolders({
+          held: offices.filter((o) => o.chain.some((x) => x.hash === b.hash)).length,
+          total: offices.length,
+        });
       })
       .catch(() => setError("Could not reach the ledger. Is FastAPI running on :8000?"));
   }, []);
@@ -129,7 +138,8 @@ export default function ReportPage() {
               </p>
               <p className="mt-0.5 text-[12px] text-neutral-600">
                 {intact
-                  ? `Every fingerprint and link was rechecked on ${fullDate(checkedAt)}.`
+                  ? `Every fingerprint, link and signature was rechecked on ${fullDate(checkedAt)}` +
+                    (holders ? `, and ${holders.held} of ${holders.total} offices hold this exact block.` : ".")
                   : check?.problem}
               </p>
             </div>
@@ -167,6 +177,7 @@ export default function ReportPage() {
                       </span>
                     )}
                   </Row>
+                  {d.reason && <Row label="Reason given">&ldquo;{d.reason}&rdquo;</Row>}
                 </tbody>
               </table>
             </Section>
@@ -213,6 +224,25 @@ export default function ReportPage() {
                   <Row label="Proof of work">
                     Found after {nf.format(block.nonce + 1)} tries
                   </Row>
+                  <Row label="Digital signature">
+                    {d.signature?.algorithm} signature by{" "}
+                    {signer ? `${signer.name} (${signer.username})` : d.signature?.signer}
+                    {check && (
+                      <span style={{ color: check.signature_ok ? ok : bad }}>
+                        {check.signature_ok ? " - valid" : " - does not fit"}
+                      </span>
+                    )}
+                    {signer && (
+                      <span className="block break-all font-mono text-[11px] text-neutral-500">
+                        public key {signer.public_key}
+                      </span>
+                    )}
+                  </Row>
+                  {holders && (
+                    <Row label="Held by">
+                      {holders.held} of {holders.total} offices keeping the ledger
+                    </Row>
+                  )}
                 </tbody>
               </table>
             </Section>

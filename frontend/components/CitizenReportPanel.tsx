@@ -12,6 +12,9 @@ interface Receipt {
   blockIndex: number;
   browserSha: string;
   serverSha: string;
+  /** Offices that accepted the block, out of how many */
+  accepted: number;
+  offices: number;
 }
 
 /**
@@ -93,6 +96,8 @@ export default function CitizenReportPanel({
         blockIndex: res.block.index,
         browserSha: browserSha ?? "",
         serverSha: res.block.data.photo_sha256,
+        accepted: res.votes.filter((v) => v.accepted).length,
+        offices: res.votes.length,
       });
       reset();
       onSubmitted();
@@ -114,7 +119,10 @@ export default function CitizenReportPanel({
 
       {receipt && !pickMode && (
         <div className="rounded-md border border-border bg-background/40 px-3 py-2 text-[11px]">
-          <p className="font-medium text-primary">✓ Sealed in Block #{receipt.blockIndex}</p>
+          <p className="font-medium text-primary">
+            ✓ Sealed in Block #{receipt.blockIndex}, signed with your key &middot; accepted by{" "}
+            {receipt.accepted} of {receipt.offices} offices
+          </p>
           <p className="mt-0.5 leading-relaxed text-muted-foreground">
             Your browser and the server both fingerprinted the photo as{" "}
             <span className="font-mono text-foreground">{shortHash(receipt.serverSha)}</span>

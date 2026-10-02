@@ -248,7 +248,11 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (tab: TabId) =>
               ledger === null
                 ? "ledger unreachable"
                 : `${photoCount} citizen photo${photoCount === 1 ? "" : "s"} · ${
-                    ledger.verification.valid ? "✓ chain verified" : "✗ tampering detected"
+                    !ledger.verification.valid
+                      ? "✗ tampering detected"
+                      : ledger.network.all_agree
+                        ? `✓ ${ledger.network.offices.length} offices agree`
+                        : "✗ an office was tampered with"
                   }`
             }
           />

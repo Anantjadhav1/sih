@@ -4,9 +4,12 @@
 # which has no prebuilt wheel for some Windows Pythons and fails to compile.
 # The asyncio loop is more than fast enough for the demo.
 #
-# Nothing else is needed: hashing, signed passes, the blockchain and the PNG
-# decoder all use the standard library, and photos arrive as base64 JSON, so
-# python-multipart is not required either.
+# cryptography provides the Ed25519 digital signatures on ledger records -
+# signatures are the one place we use a vetted library rather than our own code.
+# Everything else (hashing, sign-in passes, proof of work, the PNG decoder) is
+# the standard library, and photos arrive as base64 JSON, so python-multipart
+# is not required.
 fastapi==0.115.6
 uvicorn==0.34.0
 pydantic==2.10.4
+cryptography==50.0.2

@@ -62,26 +62,47 @@ page signs you out (the sign-in pass is kept in memory only).
 |---|---|
 | **Dashboard** | The platform in five steps - read, explore, test, seal, fund - plus live counts of decisions and citizen photos on the ledger. |
 | **Simulator** | Pick a district or zone, a type of change (agri → commercial, agri → residential, forest → urban, wetland encroachment) and how much. Get flood-risk increase, people displaced, farmland lost, a 0-100 risk score and the full risk curve. Officials approve or reject here, which seals the decision on the blockchain. The **AI Co-Pilot** answers questions and cites its sources. |
-| **Blockchain Ledger** | Every decision and citizen photo as a chain of blocks. Verify the whole chain, try to cheat it (and watch it get caught), restore, and check a printed report against the chain. |
+| **Blockchain Ledger** | Every decision and citizen photo as a signed chain of blocks, held by three offices. See each office's copy, the registered keys and the rule book; try three ways to cheat (and watch each get caught); repair a tampered office; check a printed report against the chain. |
 | **Knowledge Repository** | Research papers, datasets, policy documents and case studies with typo-tolerant, relevance-ranked search. |
 | **GIS Explorer** | The district map with thematic layers, live ISRO Bhuvan land-use tiles, citizen photo pins, **Report what you see**, and the **Time machine**. |
 | **Innovation Hub** | Open calls and grants: officials publish, researchers apply. |
 
 ### The four ideas worth explaining
 
-**1. Blockchain record of decisions** (`backend/blockchain.py`)
-Each decision becomes a block holding its data, the previous block's
-fingerprint (SHA-256 hash) and a proof of work (the hash must start with
-`000`). Edit any old block and its fingerprint stops matching. Re-seal it
-and the *next* block no longer points to it. Either way, verification
-names the exact block that was broken. The Ledger tab lets you try both
-attacks live. Every decision also has a printable report whose fingerprint
-can be checked against the chain.
+**1. A blockchain for land decisions** (`backend/blockchain.py`, `backend/signing.py`)
+
+Six ideas, each one visible in the Ledger tab:
+
+| Idea | What it means here |
+|---|---|
+| **Block** | One sealed record: the decision, the reason, the risk numbers, who made it and when. |
+| **Hash** | A SHA-256 fingerprint of the block. Change one character and it changes completely. |
+| **Chain** | Each block stores the previous block's hash, so editing an old block breaks the link after it. |
+| **Proof of work** | A block is accepted only once its hash starts with `000` (about 4,000 tries). |
+| **Digital signature** | Every record is signed with its author's Ed25519 key. The public keys live in the first block, so anyone can check who sealed what. Edit a record and the signature stops fitting. |
+| **Consensus** | Three offices (central, state, district) each keep a copy. A new block is added only when most of them accept it, and when copies differ, the one most offices hold wins. |
+
+On top sits a **rule book** that every office enforces before accepting a
+block, the same idea as a smart contract: only officials may sign decisions,
+and approving a High-risk policy needs a written reason.
+
+The Ledger tab lets you play a corrupt insider who controls one office:
+
+| Attack | Caught by |
+|---|---|
+| Edit a record | its fingerprint no longer matches |
+| Edit it and re-mine every later block | the signature (only the official's key could re-sign), and the other offices outvote the copy |
+| Erase a record and rebuild the rest | nothing on that copy - every check passes - but the other two offices still hold the record and outvote it |
+
+**Repair from the other offices** throws the bad copy away and downloads the
+agreed one, which is how a real network heals. Every decision also has a
+printable report showing its fingerprint, signature and how many offices hold
+it, so a printout can be checked against the chain.
 
 **2. Citizen ground truth** (`/api/ground-truth`)
-Anyone signed in can pin a photo to the map. The photo's own SHA-256 fingerprint
-is sealed in a block. If the stored file is ever swapped, its listing flags
-`photo_intact = false`.
+Anyone signed in can pin a photo to the map. The photo's own SHA-256
+fingerprint is signed by the reporter and sealed in a block. If the stored
+file is ever swapped, its listing flags `photo_intact = false`.
 
 **3. Time machine with measured change** (`backend/landuse_change.py`)
 It flips between ISRO's 2005 and 2015 land-use surveys of north-west Pune
@@ -108,7 +129,7 @@ so only an official can seal a decision, even if someone edits the website.
 ```mermaid
 flowchart LR
   B["Browser - Next.js<br/>maps, charts, search,<br/>Co-Pilot retrieval"] -- "JSON + signed pass" --> A["FastAPI backend<br/>simulation, sign-in,<br/>Co-Pilot answers"]
-  A --> L[("Blockchain ledger<br/>ledger_data/")]
+  A --> L[("Blockchain: 3 office copies<br/>ledger_data/offices/")]
   A --> G[("Citizen photos<br/>ground_truth/")]
   A -- "survey maps, once" --> I["ISRO Bhuvan"]
   B -- "map tiles" --> I
@@ -119,8 +140,11 @@ flowchart LR
 ```
 backend/
   main.py             API: simulation, Co-Pilot, ledger, sign-in, photos, land-use change
-  blockchain.py       the chain: hashing, proof of work, verification, tamper demo
+  blockchain.py       the chain and the network of offices: hashing, proof of work,
+                      checks, rule book, majority vote, tamper demo, repair
+  signing.py          Ed25519 digital signatures on every record
   auth.py             password hashing and signed sign-in passes
+  tests/              automated tests for the blockchain network
   landuse_change.py   measures built-up change from ISRO's 2005 / 2015 survey maps
 frontend/
   app/page.tsx        the six tabs;  app/report/page.tsx  printable decision report
@@ -138,9 +162,10 @@ start.bat             one-click start for Windows
 | POST | `/api/simulate` | Projection for a district or zone |
 | POST | `/api/copilot` | Answer with numbered citations |
 | POST | `/api/auth/login` · GET `/api/auth/me` | Sign in, check the pass |
-| GET | `/api/ledger` · `/api/ledger/verify` | Read and verify the chain |
-| POST | `/api/ledger/record` | Seal a decision (officials only) |
-| POST | `/api/ledger/tamper` · `/api/ledger/restore` | The cheating demo |
+| GET | `/api/ledger` · `/api/ledger/verify` | The agreed chain, every office's copy, fresh checks |
+| POST | `/api/ledger/record` | Sign and propose a decision (officials only); returns each office's vote |
+| POST | `/api/ledger/tamper` | The cheating demo: `edit`, `rewrite` or `erase` on one office |
+| POST | `/api/ledger/repair` · `/api/ledger/restore` | Repair one office / every office from the majority |
 | GET / POST | `/api/ground-truth` | List / send a citizen photo (sign-in needed to send) |
 | GET | `/api/landuse-change` | Measured 2005 → 2015 change |
 
@@ -156,7 +181,7 @@ Saying this up front is better than a judge finding it.
 |---|---|
 | District boundaries | **Real** - Census of India 2011 (via [udit-001/india-maps-data](https://github.com/udit-001/india-maps-data)) |
 | Land-use tiles and the time machine | **Real** - ISRO Bhuvan WMS. The 2005 → 2015 change is measured from ISRO's own maps. |
-| Blockchain, hashing, proof of work, signed passes | **Real** and working. Note: it is one copy on one server. A production network would run several nodes so no single operator could rewrite it. "Restore honest copy" stands in for asking the other nodes. |
+| Blockchain: hashing, proof of work, Ed25519 signatures, majority consensus, rule book | **Real** and working, with automated tests. Simplified: the three offices run inside one server so the demo can show them side by side - in production each runs on its own office's server. Signing keys are derived by the server for the demo accounts; in production each official signs with their own Digital Signature Certificate (DSC) token. |
 | Simulation numbers | **Illustrative** - simple per-district coefficients, not a trained model. The production path is a model trained on Bhuvan land-use, climate and census data. |
 | Research library | **Sample entries** - titles, authors and findings are illustrative, and labelled as such in the app. |
 | Thematic map layers (vulnerability, infrastructure, population) | **Illustrative** overlays for the demo. |
@@ -169,8 +194,12 @@ Saying this up front is better than a judge finding it.
 ## Good to know
 
 - **Reset the demo data:** stop the backend, delete `backend/ledger_data/` and
-  `backend/ground_truth/`, and start again. A fresh 3-block ledger is created.
-  Keep `backend/cache/` - it saves re-measuring the land-use change.
+  `backend/ground_truth/`, and start again. Fresh copies with a 3-block ledger
+  are created for all three offices. Keep `backend/cache/` - it saves
+  re-measuring the land-use change.
+- **Run the tests:** `cd backend`, then `.venv\Scripts\python -m unittest discover -s tests -v`
+  (macOS/Linux: `.venv/bin/python`). They cover signing, the rule book, every
+  attack and repair.
 - **ISRO Bhuvan offline?** The GIS Explorer falls back to the built-in layers
   and says so. The time machine needs Bhuvan, and the measured change needs it
   once, the first time.
@@ -188,12 +217,13 @@ Saying this up front is better than a judge finding it.
 2. **Simulator → Hadapsar, Agri → Commercial, "Accelerated".** The risk score and curve jump, because Hadapsar sits on the Mula-Mutha floodplain.
    Open **Ask the AI Co-Pilot** → *Why did flood risk increase?* The answer cites a research entry `[1]`.
 3. **GIS Explorer → Time machine → Show on map**, then press play. Red built-up land spreads across north-west Pune, and the card shows **+35.3 km², measured from ISRO's maps**.
-4. **Switch role (top right) → Government Official.** Set the same scenario (Hadapsar, Accelerated) and press **Approve**. A block is mined and sealed. Open **Download report**.
+4. **Switch role (top right) → Government Official.** Set the same scenario (Hadapsar, Accelerated) and press **Approve** with no reason. All three offices refuse it: the rule book says a High-risk approval needs a reason. Type one and approve again. The block is signed with the official's key, mined, and accepted by 3 of 3 offices. Open **Download report**.
 5. **Blockchain Ledger.**
-   - Every block checks out.
-   - **Try to cheat the ledger** → *Edit the record*. That block turns red.
-   - *Edit and re-seal*. Now the *next* block catches it.
-   - **Restore honest copy**.
-   - Paste the report's fingerprint into **Check a report**. It is genuine.
-6. **Switch role → Public User.** Go to GIS Explorer → **Report what you see**, pick a spot and send a photo. Its fingerprint is sealed in a new block.
+   - All three offices agree and every block checks out.
+   - **Try to cheat the ledger** on the District office:
+     - *Edit a record* - the fingerprint catches it.
+     - **Repair from the other offices**, then *Edit and re-mine the chain* - the hashes all fit, but the signature doesn't.
+     - Repair, then *Erase a record* - every check on that copy passes, yet the other two offices outvote it 2 to 1.
+   - Repair, then paste the report's fingerprint into **Check a report**. It is genuine.
+6. **Switch role → Public User.** Go to GIS Explorer → **Report what you see**, pick a spot and send a photo. Its fingerprint is signed with the citizen's key and sealed in a new block.
 7. **Simulator → Hadapsar → Co-Pilot:** *Has anything been decided here?* It cites the decision sealed in step 4.

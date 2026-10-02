@@ -2,7 +2,7 @@
 National Digital Platform for Land Governance - MVP Backend
 FastAPI server: /api/simulate, /api/copilot, and the /api/ledger blockchain.
 No database needed for the hackathon demo - the simulation is in-memory math
-and the ledger persists to a JSON file (see blockchain.py).
+and each office's copy of the ledger persists to a JSON file (see blockchain.py).
 """
 
 import base64
@@ -21,8 +21,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 import landuse_change
-from auth import authenticate, current_user, issue_token
-from blockchain import DIFFICULTY, Blockchain
+from auth import USERS, authenticate, current_user, issue_token, server_secret
+from blockchain import DIFFICULTY, MIN_REASON_CHARS, RULE_BOOK, BlockRejected, Network
+from signing import KeyRing
 
 app = FastAPI(title="Land Governance Policy Simulation API")
 
@@ -890,7 +891,7 @@ def copilot_chat(input: CopilotInput):
     # Decisions already sealed for this place - real records on the ledger
     if any(w in query for w in _LEDGER_WORDS):
         decisions = [
-            b for b in LEDGER.snapshot()
+            b for b in NETWORK.agreed_chain()
             if b["data"].get("type") == "policy_decision" and b["data"].get("scope") == scope
         ]
         for b in decisions[-2:]:
@@ -898,10 +899,11 @@ def copilot_chat(input: CopilotInput):
             cite(
                 "ledger",
                 f"Blockchain Ledger, Block #{b['index']}",
-                f"sealed by {data.get('recorded_by', 'an official')}",
+                f"signed by {data.get('recorded_by', 'an official')}",
                 f"Block #{b['index']} records that {data['lever_label'].lower()} at "
                 f"{data['conversion_pct']:g}% in {scope} was {data['decision']} "
-                f"(risk {data['risk_score']}, {data['risk_level']}).",
+                f"(risk {data['risk_score']}, {data['risk_level']})."
+                + (f' Reason given: "{data["reason"]}"' if data.get("reason") else ""),
             )
         if not decisions:
             sentences.append(f"No decision for {scope} has been sealed on the ledger yet.")
@@ -924,21 +926,52 @@ def copilot_chat(input: CopilotInput):
 # ---------- Blockchain ledger of policy decisions ----------
 #
 # When an official approves or rejects a simulated policy, the decision AND the
-# evidence it was based on are sealed into a block. See blockchain.py for how
-# hashing, chaining and proof of work make that record tamper-evident.
+# evidence it was based on are signed with the official's key and sealed into a
+# block that every office checks before accepting. See blockchain.py for how
+# hashing, chaining, proof of work, signatures and consensus fit together.
 
 _LEDGER_DIR = Path(__file__).parent / "ledger_data"
-LEDGER = Blockchain(_LEDGER_DIR / "ledger.json", _LEDGER_DIR / "ledger_honest_copy.json")
+_GT_INDEX_FILE = Path(__file__).parent / "ground_truth" / "observations.json"
 
 
-def decision_record(sim: SimulationOutput, decision: str, recorded_by: str) -> dict:
-    """The data sealed into a block: what was decided, and the numbers behind it."""
+def _archive_single_copy_ledger() -> None:
+    """
+    Ledgers from before the office network (one ledger.json plus a backup) have
+    no signatures, so they can't join it. Move them aside, with the photo index
+    that points into them, and start a fresh network.
+    """
+    old = [_LEDGER_DIR / "ledger.json", _LEDGER_DIR / "ledger_honest_copy.json"]
+    if not old[0].exists():
+        return
+    archive = _LEDGER_DIR / "archive_single_copy"
+    archive.mkdir(parents=True, exist_ok=True)
+    for f in old:
+        if f.exists():
+            f.replace(archive / f.name)
+    if _GT_INDEX_FILE.exists():
+        _GT_INDEX_FILE.replace(archive / "observations.json")
+
+
+_archive_single_copy_ledger()
+
+# Each account's signing key; the public halves go into the first block
+KEYS = KeyRing(server_secret())
+MEMBERS = [
+    {"username": u, "name": d["name"], "role": d["role"], "public_key": KEYS.public_key(u)}
+    for u, d in USERS.items()
+]
+NETWORK = Network(_LEDGER_DIR / "offices", MEMBERS)
+
+
+def decision_record(sim: SimulationOutput, decision: str, recorded_by: str, reason: str = "") -> dict:
+    """The data sealed into a block: what was decided, why, and the numbers behind it."""
     scope = sim.zone_name or f"{sim.district_name} district"
     verb = "Approved" if decision == "approved" else "Rejected"
     return {
         "type": "policy_decision",
         "title": f"{verb}: {sim.policy_lever_label}, {sim.agri_to_commercial_pct:g}% in {scope}",
         "decision": decision,
+        "reason": reason.strip(),
         "lever": sim.policy_lever,
         "lever_label": sim.policy_lever_label,
         "scope": scope,
@@ -957,16 +990,25 @@ def decision_record(sim: SimulationOutput, decision: str, recorded_by: str) -> d
 
 
 # First run only: seal two example decisions so the ledger has a visible chain
-# to walk through in a demo. Their numbers come from the real model above.
-if len(LEDGER.blocks) == 1:
-    for lever, zone, pct, decision in (
-        ("agri_residential", "kothrud", 20, "approved"),
-        ("wetland_encroachment", "hadapsar", 10, "rejected"),
+# to walk through in a demo. Their numbers come from the real model above, and
+# they are signed with the demo official's key like any other decision.
+if len(NETWORK.agreed_chain()) == 1:
+    for lever, zone, pct, decision, reason in (
+        (
+            "agri_residential", "kothrud", 20, "approved",
+            "Kothrud is already largely built out, so a modest residential conversion adds little flood risk.",
+        ),
+        (
+            "wetland_encroachment", "hadapsar", 10, "rejected",
+            "Hadapsar sits on the Mula-Mutha floodplain; filling its wetlands would push flood risk too high.",
+        ),
     ):
         seed_sim = simulate_policy(
             SimulationInput(agri_to_commercial_pct=pct, zone=zone, policy_lever=lever)
         )
-        LEDGER.add(decision_record(seed_sim, decision, "Demo seed"))
+        seed = decision_record(seed_sim, decision, "Demo seed", reason)
+        seed["recorded_by_user"] = "official@demo"
+        NETWORK.propose(KEYS.sign("official@demo", seed))
 
 
 class RecordDecisionInput(BaseModel):
@@ -974,6 +1016,8 @@ class RecordDecisionInput(BaseModel):
     # numbers sent by the browser, so a client cannot seal made-up results.
     simulation: SimulationInput
     decision: Literal["approved", "rejected"]
+    # Why - required by the rule book when approving a High-risk policy
+    reason: str = Field(default="", max_length=500)
     # No role field: who is asking comes from the signed pass (see auth.py),
     # never from the request body.
 
@@ -1004,28 +1048,46 @@ def whoami(user: dict = Depends(current_user)):
 
 
 class TamperInput(BaseModel):
+    office: str = "district"
     index: int
-    reseal: bool = False
+    attack: Literal["edit", "rewrite", "erase"] = "edit"
+
+
+class RepairInput(BaseModel):
+    office: str | None = None
 
 
 def ledger_view() -> dict:
+    """
+    The agreed chain under the same `blocks` / `verification` keys as before,
+    so every reader (Dashboard, reports, map) sees the version most offices
+    hold - plus each office's own copy for the Ledger tab.
+    """
+    net = NETWORK.status()
     return {
         "difficulty": DIFFICULTY,
-        "blocks": LEDGER.snapshot(),
-        "verification": LEDGER.verify(),
+        "blocks": net["agreed_chain"],
+        "verification": net["agreed_verification"],
+        "network": {
+            "offices": net["offices"],
+            "has_majority": net["has_majority"],
+            "all_agree": net["all_agree"],
+            "rule_book": RULE_BOOK,
+            "min_reason_chars": MIN_REASON_CHARS,
+        },
     }
 
 
 @app.get("/api/ledger")
 def get_ledger():
-    """The whole chain plus a fresh verification. Anyone may read it."""
+    """Every office's copy, the agreed chain, and a fresh verification. Anyone may read it."""
     return ledger_view()
 
 
 @app.get("/api/ledger/verify")
 def verify_ledger():
-    """Recompute every hash and link from scratch."""
-    return LEDGER.verify()
+    """Recompute every hash, link and signature in every office's copy."""
+    return ledger_view()
 
 
 @app.post("/api/ledger/record")
@@ -1037,27 +1099,40 @@ def record_decision(input: RecordDecisionInput, user: dict = Depends(current_use
             detail="Only government officials can record decisions. Anyone can verify the ledger.",
         )
     sim = simulate_policy(input.simulation)
-    record = decision_record(sim, input.decision, user["name"])
+    record = decision_record(sim, input.decision, user["name"], input.reason)
     # Which account sealed it - accountability, taken from the signed pass
     record["recorded_by_user"] = user["sub"]
-    block = LEDGER.add(record)
-    return {"block": block, **ledger_view()}
+    try:
+        block, votes = NETWORK.propose(KEYS.sign(user["sub"], record))
+    except BlockRejected as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"block": block, "votes": votes, **ledger_view()}
 
 
 @app.post("/api/ledger/tamper")
 def tamper_ledger(input: TamperInput):
-    """DEMO ONLY - forge an old block so the verification can catch it."""
+    """DEMO ONLY - an insider forges one office's copy so the checks can catch it."""
     try:
-        change = LEDGER.tamper(input.index, input.reseal)
+        change = NETWORK.tamper(input.office, input.index, input.attack)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"change": change, **ledger_view()}
 
 
+@app.post("/api/ledger/repair")
+def repair_ledger(input: RepairInput):
+    """An office that disagrees downloads the copy the majority holds."""
+    try:
+        repaired = NETWORK.repair(input.office)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"repaired": repaired, **ledger_view()}
+
+
 @app.post("/api/ledger/restore")
 def restore_ledger():
-    """DEMO ONLY - throw away the forged copy and reload the honest one."""
-    LEDGER.restore()
+    """Repair every office that disagrees with the majority."""
+    NETWORK.repair(None)
     return ledger_view()
 
 
@@ -1074,7 +1149,7 @@ def restore_ledger():
 
 _GT_DIR = Path(__file__).parent / "ground_truth"
 _GT_PHOTOS = _GT_DIR / "photos"
-_GT_INDEX = _GT_DIR / "observations.json"
+_GT_INDEX = _GT_INDEX_FILE
 _GT_LOCK = threading.Lock()
 
 GT_CATEGORIES = [
@@ -1147,21 +1222,25 @@ def submit_ground_truth(input: GroundTruthInput, user: dict = Depends(current_us
         (_GT_PHOTOS / photo_file).write_bytes(raw)
 
         recorded_by = user["name"]
-        block = LEDGER.add(
-            {
-                "type": "ground_truth",
-                "title": f"Citizen photo: {input.category} at {input.lat:.4f}, {input.lng:.4f}",
-                "category": input.category,
-                "note": input.note.strip(),
-                "lat": round(input.lat, 6),
-                "lng": round(input.lng, 6),
-                "photo_file": photo_file,
-                "photo_sha256": sha,
-                "photo_bytes": len(raw),
-                "recorded_by": recorded_by,
-                "recorded_by_user": user["sub"],
-            }
-        )
+        record = {
+            "type": "ground_truth",
+            "title": f"Citizen photo: {input.category} at {input.lat:.4f}, {input.lng:.4f}",
+            "category": input.category,
+            "note": input.note.strip(),
+            "lat": round(input.lat, 6),
+            "lng": round(input.lng, 6),
+            "photo_file": photo_file,
+            "photo_sha256": sha,
+            "photo_bytes": len(raw),
+            "recorded_by": recorded_by,
+            "recorded_by_user": user["sub"],
+        }
+        try:
+            # Signed by the reporter, then checked by every office
+            block, votes = NETWORK.propose(KEYS.sign(user["sub"], record))
+        except BlockRejected as e:
+            (_GT_PHOTOS / photo_file).unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(e))
         observation = {
             "block_index": block["index"],
             "timestamp": block["timestamp"],
@@ -1175,7 +1254,7 @@ def submit_ground_truth(input: GroundTruthInput, user: dict = Depends(current_us
         observations.append(observation)
         _GT_INDEX.write_text(json.dumps(observations, indent=2), encoding="utf-8")
 
-    return {"observation": observation, "block": block}
+    return {"observation": observation, "block": block, "votes": votes}
 
 
 @app.get("/api/ground-truth")
@@ -1185,8 +1264,9 @@ def list_ground_truth():
     is recomputed from the stored file and compared with the one sealed in
     its block - not with our own index file, which an insider could edit.
     """
-    blocks = {b["index"]: b for b in LEDGER.snapshot()}
-    checks = {c["index"]: c for c in LEDGER.verify()["blocks"]}
+    net = NETWORK.status()
+    blocks = {b["index"]: b for b in net["agreed_chain"]}
+    checks = {c["index"]: c for c in net["agreed_verification"]["blocks"]}
     out = []
     for o in _load_observations():
         block = blocks.get(o["block_index"])

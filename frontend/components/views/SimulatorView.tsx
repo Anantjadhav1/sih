@@ -234,6 +234,7 @@ export default function SimulatorView({
                 monsoonIntensity: monsoon,
                 populationGrowthRate: growth,
               }}
+              riskLevel={result?.risk_level ?? null}
               disabled={loading || !result || error !== null}
               onOpenLedger={onOpenLedger}
             />

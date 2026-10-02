@@ -53,6 +53,11 @@ def _load_secret() -> bytes:
 _SECRET = _load_secret()
 
 
+def server_secret() -> bytes:
+    """Also seeds the demo accounts' ledger signing keys (see signing.py)."""
+    return _SECRET
+
+
 def _hash_password(password: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ROUNDS)
 

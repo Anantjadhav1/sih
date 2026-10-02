@@ -72,7 +72,12 @@ export async function submitObservation(args: {
   note: string;
   /** Signed pass from sign-in; the server reads who submitted it from this */
   token: string;
-}): Promise<{ observation: Observation; block: { index: number; hash: string; nonce: number; data: { photo_sha256: string } } }> {
+}): Promise<{
+  observation: Observation;
+  block: { index: number; hash: string; nonce: number; data: { photo_sha256: string } };
+  /** How each office holding the ledger voted on the new block */
+  votes: { office: string; accepted: boolean }[];
+}> {
   const res = await fetch(`${API_BASE}/api/ground-truth`, {
     method: "POST",
     headers: {

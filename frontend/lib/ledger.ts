@@ -1,14 +1,37 @@
 /**
  * Client for the blockchain ledger of policy decisions (backend/blockchain.py).
- * Reading and verifying are open to everyone; only officials may record.
+ * Three offices each hold a copy; `blocks` and `verification` describe the copy
+ * most of them agree on. Reading and verifying are open to everyone; only
+ * officials may record decisions.
  */
 import { apiError } from "@/lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
+/** An account registered in the first block, with its public key. */
+export interface Member {
+  username: string;
+  name: string;
+  role: string;
+  public_key: string;
+}
+
+export interface Signature {
+  signer: string;
+  algorithm: string;
+  value: string;
+}
+
 export interface DecisionData {
   type: "genesis" | "policy_decision" | "ground_truth";
   title: string;
+  /** Genesis only: who may sign, and the rules every office enforces */
+  members?: Member[];
+  rule_book?: string[];
+  /** Every record after the first is signed by the account that made it */
+  signature?: Signature;
+  /** Why the official decided this way (required for High-risk approvals) */
+  reason?: string;
   // Citizen ground-truth photo blocks
   category?: string;
   note?: string;
@@ -49,6 +72,9 @@ export interface BlockCheck {
   fingerprint_ok: boolean;
   link_ok: boolean;
   work_ok: boolean;
+  /** Was it signed by a registered account, and does the signature still fit? */
+  signature_ok: boolean;
+  signer: string | null;
   recomputed_hash: string;
   problem: string | null;
 }
@@ -60,11 +86,46 @@ export interface Verification {
   blocks: BlockCheck[];
 }
 
-export interface LedgerState {
-  difficulty: number;
-  blocks: Block[];
+export type OfficeStatus = "agrees" | "tampered" | "outvoted";
+
+/** One office in the network and its own copy of the chain. */
+export interface Office {
+  id: string;
+  name: string;
+  /** agrees = holds the majority copy; tampered = its own copy fails checks;
+   *  outvoted = its copy checks out on its own but differs from the majority */
+  status: OfficeStatus;
+  length: number;
+  tip_hash: string | null;
+  chain: Block[];
   verification: Verification;
 }
+
+export interface LedgerNetwork {
+  offices: Office[];
+  has_majority: boolean;
+  all_agree: boolean;
+  rule_book: string[];
+  min_reason_chars: number;
+}
+
+/** How one office voted on a proposed block. */
+export interface Vote {
+  office: string;
+  name: string;
+  accepted: boolean;
+  reason: string | null;
+}
+
+export interface LedgerState {
+  difficulty: number;
+  /** The agreed chain - what every other part of the app reads */
+  blocks: Block[];
+  verification: Verification;
+  network: LedgerNetwork;
+}
+
+export type Attack = "edit" | "rewrite" | "erase";
 
 export interface DecisionScenario {
   pct: number;
@@ -93,9 +154,10 @@ export const fetchLedger = () => call<LedgerState>("/api/ledger");
 export function recordDecision(
   scenario: DecisionScenario,
   decision: "approved" | "rejected",
-  token: string
+  token: string,
+  reason = ""
 ) {
-  return call<LedgerState & { block: Block }>(
+  return call<LedgerState & { block: Block; votes: Vote[] }>(
     "/api/ledger/record",
     {
       method: "POST",
@@ -111,20 +173,32 @@ export function recordDecision(
           population_growth_rate: scenario.populationGrowthRate,
         },
         decision,
+        reason,
       }),
     },
     token
   );
 }
 
-export const tamperBlock = (index: number, reseal: boolean) =>
+/** DEMO ONLY: an insider attacks one office's copy. */
+export const tamperOffice = (office: string, index: number, attack: Attack) =>
   call<LedgerState>("/api/ledger/tamper", {
     method: "POST",
-    body: JSON.stringify({ index, reseal }),
+    body: JSON.stringify({ office, index, attack }),
   });
 
-export const restoreLedger = () =>
-  call<LedgerState>("/api/ledger/restore", { method: "POST" });
+/** The office throws its copy away and downloads the one most offices hold. */
+export const repairOffice = (office: string) =>
+  call<LedgerState>("/api/ledger/repair", {
+    method: "POST",
+    body: JSON.stringify({ office }),
+  });
+
+/** The registered account that signed a block, looked up in the first block. */
+export function signerOf(blocks: Block[], block: Block): Member | null {
+  const username = block.data.signature?.signer;
+  return blocks[0]?.data.members?.find((m) => m.username === username) ?? null;
+}
 
 /** First and last few characters - enough to compare two hashes by eye. */
 export function shortHash(h: string): string {
