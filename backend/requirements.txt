@@ -1,6 +1,12 @@
+# Tested with exactly these versions on CPython 3.13 (Windows). Python 3.10+ works.
+#
 # Plain uvicorn (not uvicorn[standard]): the [standard] extra drags in httptools,
-# which has no prebuilt wheel for Python 3.12 on Windows and fails to compile.
+# which has no prebuilt wheel for some Windows Pythons and fails to compile.
 # The asyncio loop is more than fast enough for the demo.
+#
+# Nothing else is needed: hashing, signed passes, the blockchain and the PNG
+# decoder all use the standard library, and photos arrive as base64 JSON, so
+# python-multipart is not required either.
 fastapi==0.115.6
 uvicorn==0.34.0
 pydantic==2.10.4
