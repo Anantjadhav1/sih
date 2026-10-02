@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+import landuse_change
 from auth import authenticate, current_user, issue_token
 from blockchain import DIFFICULTY, Blockchain
 
@@ -1059,6 +1060,22 @@ def list_ground_truth():
 
 
 _PHOTO_NAME = re.compile(r"^[0-9a-f]{64}\.(jpg|png|webp)$")
+
+
+@app.get("/api/landuse-change")
+def landuse_change_summary():
+    """
+    How much of north-west Pune was built over between ISRO's 2005 and 2015
+    land-use surveys, measured from the survey maps themselves (see
+    landuse_change.py). Returns immediately; while the one-off measurement is
+    still running it says so instead of blocking.
+    """
+    return landuse_change.get_change()
+
+
+# Start measuring at server start so the figures are ready when someone opens
+# the map (about a minute the first time, instant after that from the cache).
+landuse_change.warm_up()
 
 
 @app.get("/api/ground-truth/photo/{name}")

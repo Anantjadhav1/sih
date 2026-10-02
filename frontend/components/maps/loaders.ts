@@ -5,6 +5,7 @@ import type { ComponentType } from "react";
 import type { SimulationResult } from "@/lib/api";
 import type { Zone } from "@/lib/zones";
 import type { Observation } from "@/lib/groundTruth";
+import type { SurveyYear } from "@/lib/timeMachine";
 
 export interface PolicyMapProps {
   districtId: string;
@@ -29,6 +30,8 @@ export interface ExplorerMapProps {
   pickMode?: boolean;
   draftLocation?: [number, number] | null;
   onPick?: (lat: number, lng: number) => void;
+  /** Which ISRO survey year to show; null keeps the normal layer view */
+  timeYear?: SurveyYear | null;
 }
 
 /*

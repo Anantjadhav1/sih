@@ -40,7 +40,7 @@ const STEPS: { tab: TabId; icon: LucideIcon; title: string; text: string }[] = [
     tab: "gis",
     icon: Layers3,
     title: "Explore the map",
-    text: "Live ISRO land-use data, climate risk, and photos sent in by citizens.",
+    text: "Live ISRO land-use maps, a 2005-2015 time machine, and photos sent in by citizens.",
   },
   {
     tab: "simulator",

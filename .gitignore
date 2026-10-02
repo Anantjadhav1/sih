@@ -12,3 +12,5 @@ backend/ledger_data/
 backend/ground_truth/
 # Token signing key - secret, generated on first run
 backend/.auth_secret
+# Measured ISRO land-use change - regenerated from Bhuvan on first run
+backend/cache/

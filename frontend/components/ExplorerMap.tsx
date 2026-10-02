@@ -18,6 +18,12 @@ import { GIS_LAYERS, layerColor } from "@/lib/gisLayers";
 import { RISK_COLORS, getFeature, getProfile } from "@/lib/districts";
 import { BHUVAN_WMS_URL, bhuvanLayerFor } from "@/lib/bhuvan";
 import { photoUrl } from "@/lib/groundTruth";
+import {
+  SURVEY_BOUNDS,
+  SURVEY_KEY,
+  SURVEY_LAYERS,
+  TIME_MACHINE_YEARS,
+} from "@/lib/timeMachine";
 import type { ExplorerMapProps } from "@/components/maps/loaders";
 
 /**
@@ -57,7 +63,9 @@ function FitDistrict({ bounds }: { bounds: LatLngBoundsExpression }) {
         map.invalidateSize();
         hasFitted.current = true;
       }
-      map.fitBounds(bounds, { padding: FIT_PADDING });
+      // Not animated: an animated zoom can leave the old zoom level's tiles
+      // magnified on screen (see the note in PolicyMap)
+      map.fitBounds(bounds, { padding: FIT_PADDING, animate: false });
       return true;
     };
     if (fit()) return;
@@ -84,12 +92,17 @@ export default function ExplorerMap({
   pickMode = false,
   draftLocation = null,
   onPick,
+  timeYear = null,
 }: ExplorerMapProps) {
   const [mapKey] = useState(() => `explorer-map-${explorerSeq++}`);
   const feature = getFeature(districtId);
   const profile = getProfile(districtId);
 
-  const active = GIS_LAYERS.filter((l) => activeLayerIds.includes(l.id));
+  // While the time machine is on, the thematic layers step aside so the two
+  // surveys can be compared without anything drawn over them
+  const active = timeYear
+    ? []
+    : GIS_LAYERS.filter((l) => activeLayerIds.includes(l.id));
 
   /*
    * The LULC layer is the only one with a real upstream service. It renders as
@@ -119,7 +132,30 @@ export default function ExplorerMap({
       />
 
       <ZoomControl position="topright" />
-      <FitDistrict bounds={feature.properties.bounds} />
+      <FitDistrict bounds={timeYear ? SURVEY_BOUNDS : feature.properties.bounds} />
+
+      {/*
+        Time machine: both survey years load together and only their opacity
+        changes, so flipping between 2005 and 2015 (or pressing Play) is
+        instant instead of waiting on a fresh set of tiles each time.
+      */}
+      {timeYear &&
+        TIME_MACHINE_YEARS.map((year) => (
+          <WMSTileLayer
+            key={`survey-${year}`}
+            url={BHUVAN_WMS_URL}
+            layers={SURVEY_LAYERS[year]}
+            format="image/png"
+            transparent
+            version="1.1.1"
+            opacity={year === timeYear ? 0.85 : 0}
+            // Only request tiles over the survey: outside it Bhuvan returns
+            // blank tiles carrying just its watermark, which clutters the map
+            bounds={SURVEY_BOUNDS}
+            attribution="Land use surveys &copy; ISRO Bhuvan / NRSC"
+            eventHandlers={{ tileerror: () => onBhuvanFailure?.() }}
+          />
+        ))}
 
       {/*
         Sequential layers draw first so the categorical thematic marks sit on
@@ -273,19 +309,54 @@ export default function ExplorerMap({
       </Pane>
 
       <div className="pointer-events-none absolute left-3 top-3 z-[1000] rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur-md">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Extent
-        </p>
-        <p className="mt-0.5 text-sm font-semibold leading-tight">
-          {profile.name} District
-        </p>
-        <p className="font-mono text-[10px] text-muted-foreground">
-          {active.length} of {GIS_LAYERS.length} layers active
-        </p>
+        {timeYear ? (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Time machine
+            </p>
+            {/* The year is the headline - it's what changes when you press Play */}
+            <p className="mt-0.5 font-mono text-2xl font-semibold leading-none">{timeYear}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              North-west Pune &middot; ISRO land use survey
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Extent
+            </p>
+            <p className="mt-0.5 text-sm font-semibold leading-tight">
+              {profile.name} District
+            </p>
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {active.length} of {GIS_LAYERS.length} layers active
+            </p>
+          </>
+        )}
       </div>
 
+      {/* Survey colours, from Bhuvan's official legend */}
+      {timeYear && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur-md">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Land use
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {SURVEY_KEY.map((k) => (
+              <li key={k.label} className="flex items-center gap-1.5 text-xs">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-inset ring-black/20"
+                  style={{ backgroundColor: k.color }}
+                />
+                {k.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Legend names every active layer, so colour never carries identity alone */}
-      {(active.length > 0 || (showObservations && observations.length > 0)) && (
+      {!timeYear && (active.length > 0 || (showObservations && observations.length > 0)) && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] max-w-[15rem] rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur-md">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Active layers

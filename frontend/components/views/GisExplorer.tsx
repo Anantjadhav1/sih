@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Layers3, Satellite, SatelliteDish } from "lucide-react";
 import { useExplorerMap } from "@/components/maps/loaders";
 import CitizenReportPanel from "@/components/CitizenReportPanel";
+import TimeMachinePanel from "@/components/TimeMachinePanel";
+import type { SurveyYear } from "@/lib/timeMachine";
 import { GIS_LAYERS, layerColor } from "@/lib/gisLayers";
 import { DEFAULT_DISTRICT_ID, getProfile } from "@/lib/districts";
 import { probeBhuvan } from "@/lib/bhuvan";
@@ -23,6 +25,8 @@ export default function GisExplorer() {
   const [showObservations, setShowObservations] = useState(true);
   const [pickMode, setPickMode] = useState(false);
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null);
+  // Time machine: which ISRO survey year is on the map (null = off)
+  const [timeYear, setTimeYear] = useState<SurveyYear | null>(null);
 
   const loadObservations = useCallback(() => {
     fetchObservations()
@@ -209,6 +213,8 @@ export default function GisExplorer() {
           </label>
         </fieldset>
 
+        <TimeMachinePanel bhuvanStatus={bhuvanStatus} year={timeYear} onYearChange={setTimeYear} />
+
         <CitizenReportPanel
           pickMode={pickMode}
           draftLocation={draftLocation}
@@ -246,6 +252,7 @@ export default function GisExplorer() {
             pickMode={pickMode}
             draftLocation={draftLocation}
             onPick={(lat, lng) => setDraftLocation([lat, lng])}
+            timeYear={timeYear}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-surface-1 text-xs text-muted-foreground">
