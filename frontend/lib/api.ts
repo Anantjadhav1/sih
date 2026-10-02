@@ -74,19 +74,43 @@ export async function runSimulation(
   return res.json();
 }
 
+/** One numbered source behind a Co-pilot answer. */
+export interface Citation {
+  n: number;
+  /** library = research library entry; isro = measured survey data; ledger = sealed decision */
+  kind: "library" | "isro" | "ledger";
+  title: string;
+  detail: string;
+}
+
+export interface CopilotAnswer {
+  response: string;
+  citations: Citation[];
+}
+
+/** A research-library passage retrieved in the browser and sent as evidence. */
+export interface SourcePassage {
+  id: string;
+  title: string;
+  org: string;
+  date: string;
+  text: string;
+}
+
 export async function askCopilot(
   query: string,
   district: string = "pune",
-  zone?: string | null
-): Promise<string> {
+  zone?: string | null,
+  sources: SourcePassage[] = []
+): Promise<CopilotAnswer> {
   const res = await fetch(`${API_BASE}/api/copilot`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, district, zone: zone ?? null }),
+    body: JSON.stringify({ query, district, zone: zone ?? null, sources }),
   });
   if (!res.ok) throw new Error("Copilot request failed");
   const data = await res.json();
-  return data.response;
+  return { response: data.response, citations: data.citations ?? [] };
 }
 
 /** One zone as the backend reports it, including its standing flood baseline. */

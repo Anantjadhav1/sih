@@ -380,14 +380,36 @@ class SimulationOutput(BaseModel):
     curve: list[CurvePoint]
 
 
+class SourcePassage(BaseModel):
+    """A research-library passage the browser's search retrieved for this question."""
+    id: str
+    title: str
+    org: str = ""
+    date: str = ""
+    text: str = Field(max_length=600)
+
+
 class CopilotInput(BaseModel):
     query: str
     district: str = DEFAULT_DISTRICT
     zone: str | None = None
+    # Step 1 of retrieval-augmented answering happens in the browser: the same
+    # relevance search as the library's search box picks the passages to send.
+    # Only the first two are used. (No list-length constraint here on purpose:
+    # pydantic v1 and v2 spell it differently, and this must run on both.)
+    sources: list[SourcePassage] = Field(default_factory=list)
+
+
+class Citation(BaseModel):
+    n: int
+    kind: Literal["library", "isro", "ledger"]
+    title: str
+    detail: str
 
 
 class CopilotOutput(BaseModel):
     response: str
+    citations: list[Citation] = Field(default_factory=list)
 
 
 # ---------- Endpoints ----------
@@ -688,12 +710,27 @@ def simulate_policy(input: SimulationInput):
     )
 
 
-@app.post("/api/copilot", response_model=CopilotOutput)
-def copilot_chat(input: CopilotInput):
+def _mid_sentence(text: str) -> str:
     """
-    Hardcoded/rule-based smart responses for the demo - no external API key needed.
-    Swap the body of this function for a real OpenAI call later by dropping
-    OPENAI_API_KEY into a .env file and using the openai python SDK.
+    Lower-case a description's first letter so it reads mid-sentence, but
+    leave acronyms ("IT corridor") and every proper noun after it alone.
+    """
+    if len(text) > 1 and text[:2].isupper():
+        return text
+    return text[:1].lower() + text[1:]
+
+
+_GENERIC_ANSWER = "__generic__"
+
+
+def _topic_answer(input: CopilotInput) -> str:
+    """
+    The model-based part of the answer: rule-based explanations of the
+    simulation for the district or zone in scope. No API key needed; an LLM
+    could replace this function without changing how evidence is retrieved.
+
+    Returns _GENERIC_ANSWER when the question isn't about a modelled topic, so
+    the caller can lead with evidence instead of a generic help message.
     """
     query = input.query.lower()
     _, d = resolve_district(input.district)
@@ -705,36 +742,31 @@ def copilot_chat(input: CopilotInput):
         _, z = resolve_zone(input.zone)
         zname = z["name"]
         if "flood" in query:
-            return CopilotOutput(response=(
+            return (
                 f"{zname} already carries a standing flood risk of "
                 f"{z['baseline_flood_risk_pct']}% before any conversion - "
-                f"{z['character'].lower()}. Each additional percent converted adds "
+                f"{_mid_sentence(z['character'])}. Each additional percent converted adds "
                 f"{z['flood_sensitivity']} points of runoff-driven risk on top of "
                 f"that baseline, which is why {zname} diverges from the "
                 f"{name} district average."
-            ))
+            )
         if "displac" in query:
-            return CopilotOutput(response=(
+            return (
                 f"{zname} holds about {z['population']:,} residents across "
                 f"{z['area_sq_km']} km². At the current setting the model "
                 f"displaces {z['displacement_density']} people per percent "
                 f"converted, concentrated in the zone rather than spread across "
                 f"the district."
-            ))
+            )
         if "farmland" in query or "agri" in query:
-            return CopilotOutput(response=(
+            return (
                 f"{zname} has roughly {z['agricultural_area_ha']:,} hectares "
                 f"under cultivation, of which about "
                 f"{int(z['convertible_share'] * 100)}% is actually eligible to "
                 f"convert - the rest is protected or already committed. That "
                 f"eligibility ceiling is what limits farmland loss here."
-            ))
-        return CopilotOutput(response=(
-            f"I'm scoped to {zname} ({z['character'].lower()}) in {name} district. "
-            f"It opens at {z['baseline_flood_risk_pct']}% standing flood risk. Ask "
-            f"about flood risk, displacement or farmland loss, or pick another "
-            f"zone marker on the map to compare."
-        ))
+            )
+        return _GENERIC_ANSWER
 
     if "flood" in query:
         reply = (
@@ -767,13 +799,126 @@ def copilot_chat(input: CopilotInput):
             "Nashik and Nagpur."
         )
     else:
-        reply = (
-            f"I'm the Policy Copilot for {name} district. Ask me about flood "
-            f"risk, displacement, or farmland loss to understand the simulation "
-            f"results, or adjust the slider to test a different policy scenario."
+        reply = _GENERIC_ANSWER
+
+    return reply
+
+
+def _generic_help(input: CopilotInput) -> str:
+    """What to say when the question matched neither a topic nor any evidence."""
+    _, d = resolve_district(input.district)
+    if input.zone:
+        _, z = resolve_zone(input.zone)
+        return (
+            f"I'm looking at {z['name']} ({_mid_sentence(z['character'])}) in "
+            f"{d['name']} district, which starts at {z['baseline_flood_risk_pct']}% "
+            f"flood risk. Ask about flood risk, displacement, farmland, how the area "
+            f"has grown, or what has been decided here."
+        )
+    return (
+        f"I'm looking at {d['name']} district. Ask about flood risk, displacement, "
+        f"farmland, how the area has grown, or what has been decided here."
+    )
+
+
+# Words that make the platform's own evidence relevant to a question
+_ISRO_WORDS = ("built", "urban", "grow", "sprawl", "expan", "change", "history",
+               "past", "2005", "2015", "land use", "time machine", "pimpri", "chinchwad")
+_LEDGER_WORDS = ("decid", "decision", "approv", "reject", "ledger", "blockchain",
+                 "record", "sealed", "official")
+
+
+@app.post("/api/copilot", response_model=CopilotOutput)
+def copilot_chat(input: CopilotInput):
+    """
+    Retrieval-augmented answering, in three steps:
+
+      1. RETRIEVE  Gather evidence: research-library passages (searched in the
+                   browser and sent with the question), plus two sources this
+                   server holds - ISRO's measured land-use change, and
+                   decisions sealed on the blockchain.
+      2. AUGMENT   Keep only the evidence that fits the question and scope.
+      3. GENERATE  Write the answer from the simulation model, then add one
+                   sentence per piece of evidence, numbered so every claim
+                   points to its source.
+
+    Generation is rule-based so no API key is needed; swapping in an LLM means
+    passing it the same question and evidence.
+    """
+    query = input.query.lower()
+    _, d = resolve_district(input.district)
+    zone = resolve_zone(input.zone)[1] if input.zone else None
+    scope = zone["name"] if zone else f"{d['name']} district"
+
+    citations: list[Citation] = []
+    sentences: list[str] = []
+
+    def cite(kind: str, title: str, detail: str, sentence: str) -> None:
+        n = len(citations) + 1
+        citations.append(Citation(n=n, kind=kind, title=title, detail=detail))
+        sentences.append(f"{sentence} [{n}]")
+
+    # Research library - already ranked by relevance in the browser
+    for s in input.sources[:2]:
+        finding = s.text.strip().rstrip(".")
+        if not finding:
+            continue
+        cite(
+            "library",
+            s.title,
+            " · ".join(x for x in (s.org, s.date) if x),
+            f"Relevant research: \"{s.title}\" - {finding[0].lower() + finding[1:]}.",
         )
 
-    return CopilotOutput(response=reply)
+    # ISRO's measured change - real data, from the time-machine surveys
+    about_growth = any(w in query for w in _ISRO_WORDS) or (
+        zone is not None and zone["name"] == "Hinjewadi" and ("farmland" in query or "agri" in query)
+    )
+    if about_growth:
+        lc = landuse_change.get_change()
+        if lc.get("available"):
+            first, last = lc["years"][0], lc["years"][-1]
+            cite(
+                "isro",
+                "ISRO Bhuvan land use surveys, 2005 and 2015",
+                lc["region_label"],
+                f"ISRO's own surveys show built-up land in north-west Pune grew from "
+                f"{first['built_up_km2']} km² in {first['year']} to {last['built_up_km2']} km² "
+                f"in {last['year']} - {lc['change']['km2']} km² built over in ten years.",
+            )
+
+    # Decisions already sealed for this place - real records on the ledger
+    if any(w in query for w in _LEDGER_WORDS):
+        decisions = [
+            b for b in LEDGER.snapshot()
+            if b["data"].get("type") == "policy_decision" and b["data"].get("scope") == scope
+        ]
+        for b in decisions[-2:]:
+            data = b["data"]
+            cite(
+                "ledger",
+                f"Blockchain Ledger, Block #{b['index']}",
+                f"sealed by {data.get('recorded_by', 'an official')}",
+                f"Block #{b['index']} records that {data['lever_label'].lower()} at "
+                f"{data['conversion_pct']:g}% in {scope} was {data['decision']} "
+                f"(risk {data['risk_score']}, {data['risk_level']}).",
+            )
+        if not decisions:
+            sentences.append(f"No decision for {scope} has been sealed on the ledger yet.")
+
+    answer = _topic_answer(input)
+    if answer == _GENERIC_ANSWER:
+        # Not a modelled topic: lead with the evidence if there is any
+        if sentences:
+            return CopilotOutput(
+                response=f"Here is what the platform's evidence says about {scope}:\n\n"
+                + "\n".join(sentences),
+                citations=citations,
+            )
+        return CopilotOutput(response=_generic_help(input), citations=[])
+    if sentences:
+        answer += "\n\n" + "\n".join(sentences)
+    return CopilotOutput(response=answer, citations=citations)
 
 
 # ---------- Blockchain ledger of policy decisions ----------

@@ -1,28 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Send, Sparkles } from "lucide-react";
+import { Blocks, BookOpen, ChevronDown, Satellite, Send, Sparkles } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { askCopilot } from "@/lib/api";
+import type { Citation } from "@/lib/api";
+import { retrieveSources } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 interface Message {
   role: "user" | "assistant";
   text: string;
+  citations?: Citation[];
 }
 
 const GREETING: Message = {
   role: "assistant",
-  text: "Ask me about this scenario — I read the current district and conversion level.",
+  text:
+    "Ask me about this place. I check the research library, ISRO's survey data and " +
+    "decisions sealed on the blockchain first, and show which sources I used.",
 };
 
 /** One-tap prompts so a live demo never has to type. */
 const SUGGESTIONS = [
   "Why did flood risk increase?",
-  "Who is displaced?",
-  "What about farmland?",
+  "How has this area grown?",
+  "Has anything been decided here?",
 ];
+
+/** Where each kind of source comes from, in words a non-specialist follows. */
+const SOURCE_KIND: Record<Citation["kind"], { icon: LucideIcon; label: string }> = {
+  library: { icon: BookOpen, label: "Research library (sample entry)" },
+  isro: { icon: Satellite, label: "ISRO survey data" },
+  ledger: { icon: Blocks, label: "Blockchain ledger" },
+};
 
 export default function CopilotChat({
   districtId,
@@ -59,8 +72,19 @@ export default function CopilotChat({
     setInput("");
     setLoading(true);
     try {
-      const reply = await askCopilot(text, districtId, zoneId);
-      setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+      // Retrieve first: the library passages worth sending with the question
+      const sources = retrieveSources(text).map((e) => ({
+        id: e.id,
+        title: e.title,
+        org: e.org,
+        date: e.date,
+        text: e.description,
+      }));
+      const reply = await askCopilot(text, districtId, zoneId, sources);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: reply.response, citations: reply.citations },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -115,13 +139,35 @@ export default function CopilotChat({
                 : "border border-border bg-surface-2/70 text-foreground"
             )}
           >
-            {m.text}
+            {/* Answers keep their paragraph breaks: answer, then the evidence */}
+            <p className="whitespace-pre-line">{m.text}</p>
+
+            {/* Every numbered claim points at one of these */}
+            {m.citations && m.citations.length > 0 && (
+              <ol className="mt-2 space-y-1 border-t border-border pt-2">
+                {m.citations.map((c) => {
+                  const kind = SOURCE_KIND[c.kind];
+                  return (
+                    <li key={c.n} className="flex gap-1.5 text-[10px] leading-snug">
+                      <span className="font-mono font-semibold text-primary">[{c.n}]</span>
+                      <span className="min-w-0">
+                        <span className="font-medium">{c.title}</span>
+                        <span className="block text-muted-foreground">
+                          <kind.icon className="mr-1 inline h-2.5 w-2.5 align-[-1px]" />
+                          {kind.label} &middot; {c.detail}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
           </div>
         ))}
         {loading && (
           <div className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-            Consulting policy corpus&hellip;
+            Checking the evidence&hellip;
           </div>
         )}
       </div>

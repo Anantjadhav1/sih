@@ -33,11 +33,24 @@ const FIELD_WEIGHTS = {
 
 type Field = keyof typeof FIELD_WEIGHTS;
 
+/**
+ * Filler words carry no meaning for matching. Left in, "what is the risk in
+ * this area" would match every document through "the", "is" and "in".
+ */
+const STOPWORDS = new Set(
+  (
+    "a an and are as at be been but by can could did do does for from had has have how " +
+    "if in into is it its me my no not of on or our so than that the their them then " +
+    "there these they this those to too was we were what when where which who why will " +
+    "with would you your about any all also more most much only such very here happen"
+  ).split(" ")
+);
+
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 1);
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
 function fieldsOf(entry: RepositoryEntry): Record<Field, string[]> {
@@ -107,7 +120,11 @@ function termSimilarity(query: string, docTerm: string): number {
     // Partial word: "vuln" -> "vulnerability". Longer prefixes score higher.
     return 0.7 + 0.15 * (query.length / docTerm.length);
   }
-  if (query.includes(docTerm) || docTerm.includes(query)) return 0.6;
+  // One word inside the other ("plain" in "floodplain"). The contained part
+  // must be at least 5 letters: otherwise short generic words leak in, and
+  // "farmland" would match every title containing "land".
+  const shorter = query.length < docTerm.length ? query : docTerm;
+  if (shorter.length >= 5 && (query.includes(docTerm) || docTerm.includes(query))) return 0.6;
 
   const budget = typoBudget(query);
   if (budget === 0) return 0;
@@ -120,6 +137,11 @@ export interface ScoredEntry {
   entry: RepositoryEntry;
   /** 0-1 relevance, normalised against the best hit in this result set. */
   relevance: number;
+  /**
+   * Un-normalised score. Relevance always gives the best hit 100%, even a
+   * weak one; this is what says whether a match is strong in absolute terms.
+   */
+  score: number;
 }
 
 /**
@@ -133,7 +155,7 @@ export function searchRepository(rawQuery: string): ScoredEntry[] {
   if (queryTerms.length === 0) {
     return [...REPOSITORY]
       .sort((a, b) => b.published.localeCompare(a.published))
-      .map((entry) => ({ entry, relevance: 0 }));
+      .map((entry) => ({ entry, relevance: 0, score: 0 }));
   }
 
   const scored = INDEX.map(({ entry, fields }) => {
@@ -175,6 +197,25 @@ export function searchRepository(rawQuery: string): ScoredEntry[] {
   // match here", which is what a percentage means to a reader.
   const top = Math.max(...scored.map((s) => s.raw));
   return scored
-    .map((s) => ({ entry: s.entry, relevance: s.raw / top }))
+    .map((s) => ({ entry: s.entry, relevance: s.raw / top, score: s.raw }))
     .sort((a, b) => b.relevance - a.relevance);
+}
+
+/**
+ * Minimum absolute score for the Co-pilot to cite a document. Calibrated so
+ * that one exact title or tag match on a distinctive word qualifies, while a
+ * stray partial match in a description does not - better to cite nothing than
+ * to cite something off-topic.
+ */
+export const CITE_MIN_SCORE = 3;
+
+/**
+ * Step 1 of the Co-pilot's retrieval-augmented answers: the library passages
+ * worth sending along with a question. Same scoring as the search box.
+ */
+export function retrieveSources(question: string, limit = 2): RepositoryEntry[] {
+  return searchRepository(question)
+    .filter((r) => r.score >= CITE_MIN_SCORE)
+    .slice(0, limit)
+    .map((r) => r.entry);
 }

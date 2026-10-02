@@ -104,7 +104,13 @@ export default function KnowledgeRepository() {
           <h1 className="text-lg font-semibold tracking-tight">Knowledge Repository</h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Research papers, open datasets, policy instruments and field case
-            studies on Indian land governance.
+            studies on Indian land governance. The AI Co-pilot searches this
+            library before answering and cites what it uses.
+          </p>
+          {/* Honest labelling: these entries are placeholders, not real papers */}
+          <p className="mt-2 inline-block rounded-md border border-border bg-surface-2/50 px-2.5 py-1 text-[11px] text-muted-foreground">
+            Sample entries for this demo - titles, authors and findings are
+            illustrative, not real publications.
           </p>
         </header>
 
